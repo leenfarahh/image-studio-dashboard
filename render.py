@@ -39,9 +39,6 @@ CSS = """
     --step-2: #5598e7;
     --step-3: #2a78d6;
     --step-4: #184f95;
-    /* channel encoding on the standalone dashboards: teal is the only hue that
-       clears both the ChatGPT blue and the Gemini orange in both modes */
-    --direct: #1baf7a;
     /* status - always paired with an icon + label, never colour alone */
     --good: #0ca30c;
     --warning: #fab219;
@@ -69,7 +66,6 @@ CSS = """
       --step-2: #86b6ef;
       --step-3: #3987e5;
       --step-4: #184f95;
-      --direct: #199e70;
       --good: #0ca30c;
       --warning: #fab219;
       --critical: #d03b3b;
@@ -96,7 +92,6 @@ CSS = """
     --step-2: #86b6ef;
     --step-3: #3987e5;
     --step-4: #184f95;
-    --direct: #199e70;
     --good: #0ca30c;
     --warning: #fab219;
     --critical: #d03b3b;
@@ -561,15 +556,15 @@ TITLES = {
         "Adoption . ChatGPT",
         "ChatGPT Image Gen Adoption",
         "ChatGPT Image Generation",
-        "ChatGPT used directly for image generation, outside the tool, "
-        "compared against ChatGPT run through the tool.",
+        "Every image generated on ChatGPT through the MCP tool. "
+        "Measured against the designers provisioned on it.",
     ),
     "gemini": (
         "Adoption . Gemini",
         "Gemini Image Gen Adoption",
         "Gemini Image Generation",
-        "Gemini used directly for image generation, outside the tool, "
-        "compared against Gemini run through the tool.",
+        "Every image generated on Gemini through the MCP tool. "
+        "Measured against the designers provisioned on it.",
     ),
 }
 
@@ -742,29 +737,29 @@ def _designer_table(dataset, scope):
     """scope: 'all' | 'chatgpt' | 'gemini'."""
     rows, classes = [], []
     for d in dataset["designers"]:
-        if scope == "all":
-            tool_n, direct_n = d["tool_total"], d["direct_total"]
-        else:
-            tool_n, direct_n = d["tool_" + scope], d["direct_" + scope]
-        total = tool_n + direct_n
-        if total == 0 and not d["provisioned"]:
+        n = d["tool_total"] if scope == "all" else d["tool_" + scope]
+        if n == 0 and not d["provisioned"]:
             continue
         # Weeks and last-used must match the column scope, otherwise a
         # Gemini-only designer reads as "not started" beside a ChatGPT date.
         weeks = d["active_weeks_" + scope]
         last_seen = d["last_seen_" + scope]
-        if total == 0:
+        if n == 0:
             status = '<span class="pill mute">Not started</span>'
         elif weeks >= 2:
             status = '<span class="pill good">&#10003; Returning</span>'
         else:
             status = '<span class="pill warn">&#9888; Tried once</span>'
-        rows.append([
-            esc(d["name"]), tool_n, direct_n, weeks, last_seen or "Never", status,
-        ])
-        classes.append("is-idle" if total == 0 else "")
-    headers = ["Designer", "In tool", "Direct", "Active weeks", "Last used", "Status"]
-    return table(headers, rows, classes)
+
+        if scope == "all":
+            cells = [esc(d["name"]), d["tool_chatgpt"], d["tool_gemini"]]
+        else:
+            cells = [esc(d["name"]), n]
+        rows.append(cells + [weeks, last_seen or "Never", status])
+        classes.append("is-idle" if n == 0 else "")
+
+    lead = ["Designer", "ChatGPT", "Gemini"] if scope == "all" else ["Designer", "Actions"]
+    return table(lead + ["Active weeks", "Last used", "Status"], rows, classes)
 
 
 def _weekly_table(dataset, variant):
@@ -775,16 +770,15 @@ def _weekly_table(dataset, variant):
                          w["tool_active"], w["tool_cumulative"],
                          f'{w["tool_adoption_pct"]}%'])
         else:
-            rows.append([w["label"], w["tool_" + variant + "_total"],
-                         w["direct_" + variant + "_total"],
-                         w["tool_" + variant + "_active"],
-                         w["direct_" + variant + "_active"],
-                         w["direct_" + variant + "_cumulative"]])
+            pre = "tool_" + variant
+            rows.append([w["label"], w[pre + "_generate"], w[pre + "_refine"],
+                         w[pre + "_total"], w[pre + "_active"],
+                         w[pre + "_cumulative"], f'{w[variant + "_adoption_pct"]}%'])
     headers = (
         ["Week of", "ChatGPT", "Gemini", "Active users", "Cumulative adopters", "Adoption"]
         if variant == "overall" else
-        ["Week of", "In-tool actions", "Direct actions", "In-tool users",
-         "Direct users", "Direct adopters"]
+        ["Week of", "Generate", "Refine", "Total", "Active users",
+         "Cumulative adopters", "Adoption"]
     )
     return (
         '<div class="panel"><details class="table-toggle">'
@@ -957,76 +951,65 @@ def render_overall(dataset, nav_items):
     return _shell("overall", dataset, nav_items, kpis, body, script)
 
 
-FEED_HINT = """
-<div class="empty-state">
-  <b>No direct-usage events recorded yet.</b> This dashboard measures __LABEL__ used
-  <em>outside</em> the MCP tool, which nothing reports automatically - the vendor
-  consoles do not push per-designer image counts anywhere.
-  Feed it either way:
-  <br><br>
-  &bull; <b>Per event:</b> <code>POST /log-standalone</code> with
-  <code>{"provider":"__PROV__","user_id":"designer@prezlab.com","operation":"generate"}</code><br>
-  &bull; <b>Bulk:</b> <code>POST /import-standalone</code> with a CSV export
-  (<code>provider,user_id,operation,created_at</code>) pulled from the admin console.
-  <br><br>
-  Until then the in-tool figures below are complete and the direct figures read zero -
-  that is a missing feed, not a measured zero.
-</div>
-"""
-
-
 def render_provider(variant, dataset, nav_items):
-    meta = dataset["meta"]
-    sub = dataset["substitution"][variant]
+    """One model, inside the tool.
+
+    The old version of this view compared in-tool against direct use. Nothing
+    reports direct use per designer, so the comparison is gone and the question
+    becomes how the model is actually used: who reaches for it, how much of the
+    volume it carries, and how much rework each kept image costs.
+    """
+    mix = dataset["mix"]
+    m, overlap = mix[variant], mix["overlap"]
     rel, lat, qual = dataset["reliability"], dataset["latency"], dataset["quality"]
-    weeks = dataset["weeks"]
     denom = dataset["denominator"]
     label = config.PROVIDER_LABELS[variant]
-    has_direct = sub["direct_actions"] > 0
-
-    direct_adoption = round(100.0 * sub["direct_users"] / denom, 1) if denom else 0.0
-    tool_adoption = round(100.0 * sub["tool_users"] / denom, 1) if denom else 0.0
+    other = [p for p in config.PROVIDERS if p != variant][0]
+    other_label = config.PROVIDER_LABELS[other]
 
     kpis = (
-        kpi(f"{label} direct adoption", direct_adoption, unit="%",
-            note=f'{sub["direct_users"]} of {denom} designers used {label} directly',
+        kpi(f"{label} adoption", m["adoption_pct"], unit="%",
+            note=f'{m["users"]} of {denom} provisioned designers have generated on {label}',
             headline=True)
-        + kpi("Runs through the tool", sub["tool_share_pct"], unit="%",
-              note=f'{sub["tool_actions"]:,} in tool vs {sub["direct_actions"]:,} direct')
-        + kpi("Direct actions", f'{sub["direct_actions"]:,}',
-              note=f"{label} image generation outside the tool")
-        + kpi("Direct only", sub["direct_only"],
-              note=f"use {label} directly but never through the tool")
+        + kpi("Share of volume", m["share_pct"], unit="%",
+              note=f'{m["actions"]:,} of {overlap["total_actions"]:,} in-tool actions')
+        + kpi("Save rate", qual[variant]["save_pct"], unit="%",
+              note=f'{qual[variant]["saved"]} of {qual[variant]["images"]} images kept')
+        + kpi("Success rate", rel[variant]["success_pct"], unit="%",
+              note=f'{rel[variant]["attempts"]:,} attempts, {rel[variant]["failed"]} failed')
     )
 
-    empty = FEED_HINT.replace("__LABEL__", label).replace("__PROV__", variant) \
-        if not has_direct else ""
+    # A measured zero and a missing feed look identical on a chart, so say
+    # which one this is rather than leaving the reader to guess.
+    empty = (
+        f'<div class="empty-state"><b>No {esc(label)} activity yet.</b> Nobody has '
+        f'generated an image on {esc(label)} through the tool in this window. '
+        f'Every figure below is a measured zero, not a missing feed.</div>'
+        if m["actions"] == 0 else ""
+    )
 
     adopters = stat_lines([
-        (f"Used {label} in the tool", sub["tool_users"], f"{tool_adoption}%"),
-        (f"Used {label} directly", sub["direct_users"], f"{direct_adoption}%"),
-        ("Both channels", sub["both"], ""),
-        ("Direct only", sub["direct_only"], "conversion target"),
-        ("Tool only", sub["tool_only"], ""),
-        ("Direct users not provisioned", sub["unknown_direct_users"], ""),
+        (f"Used {label}", m["users"], f'{m["adoption_pct"]}%'),
+        ("Kept an output", dataset["savers"][variant], ""),
+        ("Used both models", overlap["both"], ""),
+        (f"{label} only", overlap[variant + "_only"], f"never used {other_label}"),
+        (f"Never used {label}", max(0, denom - m["users"]), ""),
     ])
 
-    tool_pct = int(round(sub["tool_share_pct"]))
-    direct_pct = 100 - tool_pct if sub["total_actions"] else 0
+    gen_pct = int(round(100.0 * m["generate"] / m["actions"])) if m["actions"] else 0
+    ref_pct = 100 - gen_pct if m["actions"] else 0
 
-    in_tool_total = sum(w["tool_" + variant + "_total"] for w in weeks)
-    gen = sum(w["tool_" + variant + "_generate"] for w in weeks)
-    ref = sum(w["tool_" + variant + "_refine"] for w in weeks)
-
-    intool_html = (
-        f'<div class="panel-head"><p class="panel-title">{esc(label)} inside the tool</p>'
+    health_html = (
+        f'<div class="panel-head"><p class="panel-title">{esc(label)} health</p>'
         f'{health_pill(rel[variant]["success_pct"], rel[variant]["attempts"])}</div>'
         + stat_lines([
-            ("Actions", f"{in_tool_total:,}", f"{gen} generate / {ref} refine"),
+            ("Actions", f'{m["actions"]:,}',
+             f'{m["generate"]} generate / {m["refine"]} refine'),
             ("Attempts", f'{rel[variant]["attempts"]:,}', ""),
             ("Failed", rel[variant]["failed"], f'{rel[variant]["failure_pct"]}%'),
             ("Median latency", _ms(lat[variant]["p50"]), f'p95 {_ms(lat[variant]["p95"])}'),
             ("Images saved", qual[variant]["saved"], f'{qual[variant]["save_pct"]}%'),
+            ("Refines per generate", qual[variant]["refines_per_generate"], ""),
         ])
     )
 
@@ -1035,10 +1018,10 @@ def render_provider(variant, dataset, nav_items):
 
   <div class="panel">
     <div class="panel-head">
-      <p class="panel-title">Weekly {esc(label)} volume by channel</p>
+      <p class="panel-title">Weekly {esc(label)} volume</p>
       <div class="panel-legend">
-        <span><span class="legend-dot" style="background:var(--{variant})"></span>In the tool</span>
-        <span><span class="legend-dot" style="background:var(--direct)"></span>Direct</span>
+        <span><span class="legend-dot" style="background:var(--{variant})"></span>Generate</span>
+        <span><span class="legend-dot" style="background:var(--ink-muted)"></span>Refine</span>
       </div>
     </div>
     <div id="chart-volume"></div>
@@ -1049,39 +1032,39 @@ def render_provider(variant, dataset, nav_items):
       <div class="panel-head">
         <p class="panel-title">Adopters per week</p>
         <div class="panel-legend">
-          <span><span class="legend-dot" style="background:var(--{variant})"></span>In tool</span>
-          <span><span class="legend-dot" style="background:var(--direct)"></span>Direct</span>
+          <span><span class="legend-dot" style="background:var(--{variant})"></span>Active / week</span>
+          <span><span class="legend-dot" style="background:var(--ink-muted)"></span>Cumulative adopters</span>
         </div>
       </div>
       <div id="chart-users"></div>
     </div>
     <div class="panel">
-      <div class="panel-head"><p class="panel-title">Channel split</p></div>
+      <div class="panel-head"><p class="panel-title">Generate vs refine</p></div>
       <div class="share-bar">
-        <div style="width:{tool_pct}%; background:var(--{variant})"></div>
-        <div style="width:{direct_pct}%; background:var(--direct)"></div>
+        <div style="width:{gen_pct}%; background:var(--{variant})"></div>
+        <div style="width:{ref_pct}%; background:var(--ink-muted)"></div>
       </div>
       <div class="share-legend">
-        <span>In tool <span class="val mono">{sub["tool_actions"]:,}</span></span>
-        <span>Direct <span class="val mono">{sub["direct_actions"]:,}</span></span>
+        <span>Generate <span class="val mono">{m["generate"]:,}</span></span>
+        <span>Refine <span class="val mono">{m["refine"]:,}</span></span>
       </div>
-      <p class="panel-hint" style="margin-top:14px">The higher the in-tool share, the
-        more {esc(label)} work is governed, logged and on brand rather than happening
-        in personal accounts.</p>
+      <p class="panel-hint" style="margin-top:14px">{qual[variant]["refines_per_generate"]}
+        refines per generated image. A high ratio means {esc(label)} takes more
+        reworking before anyone keeps the result.</p>
     </div>
   </div>
 
   <div class="panel-row even">
-    <div class="panel">{intool_html}</div>
+    <div class="panel">{health_html}</div>
     <div class="panel">
-      <div class="panel-head"><p class="panel-title">Who uses {esc(label)}, and where</p></div>
+      <div class="panel-head"><p class="panel-title">Who uses {esc(label)}</p></div>
       {adopters}
     </div>
   </div>
 
   <div class="panel">
     <div class="panel-head"><p class="panel-title">By designer</p></div>
-    <p class="panel-hint">{esc(label)} actions per designer, split by channel.</p>
+    <p class="panel-hint">{esc(label)} actions per designer, in the tool.</p>
     {_designer_table(dataset, variant)}
   </div>
 
@@ -1095,12 +1078,12 @@ def render_provider(variant, dataset, nav_items):
   const root = document.querySelector('.dash[data-variant="__VARIANT__"]');
   const css = k => getComputedStyle(root).getPropertyValue(k).trim();
   window.__dashCharts.renderStackedArea(root.querySelector('#chart-volume'), data, [
-    {key: "tool___VARIANT___total",   label: "In the tool", color: css('--__VARIANT__')},
-    {key: "direct___VARIANT___total", label: "Direct",      color: css('--direct')}
+    {key: "tool___VARIANT___generate", label: "Generate", color: css('--__VARIANT__')},
+    {key: "tool___VARIANT___refine",   label: "Refine",   color: css('--ink-muted')}
   ]);
   window.__dashCharts.renderLines(root.querySelector('#chart-users'), data, [
-    {key: "tool___VARIANT___active",   label: "In-tool users", color: css('--__VARIANT__')},
-    {key: "direct___VARIANT___active", label: "Direct users",  color: css('--direct'), dashed: true}
+    {key: "tool___VARIANT___active",     label: "Active / week",       color: css('--__VARIANT__')},
+    {key: "tool___VARIANT___cumulative", label: "Cumulative adopters", color: css('--ink-muted'), dashed: true}
   ], {width: 560, height: 200});
 })();
 </script>

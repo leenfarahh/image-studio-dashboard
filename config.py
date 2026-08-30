@@ -1,4 +1,4 @@
-"""Central configuration for the Image Generator adoption dashboards.
+"""Central configuration for the Image Generator adoption dashboard.
 
 Secrets are read from .env (gitignored) - never hardcode keys in source.
 """
@@ -12,25 +12,17 @@ load_dotenv()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ------------------------------------------------------------------
-# Data sources
+# Data source
 # ------------------------------------------------------------------
-# The MCP tool's own Supabase project (generation_events, images, profiles).
+# The MCP tool's own Supabase project, and the only source of truth. Usage
+# outside the tool is deliberately not tracked: no vendor exposes per-designer
+# image counts, so any such figure would be self-reported or inferred.
 TOOL_SUPABASE_URL = os.environ.get("TOOL_SUPABASE_URL", "")
 TOOL_SUPABASE_API_KEY = os.environ.get("TOOL_SUPABASE_API_KEY", "")
 
-# Separate project holding direct/outside-the-tool ChatGPT + Gemini usage.
-STANDALONE_SUPABASE_URL = os.environ.get("STANDALONE_SUPABASE_URL", "")
-STANDALONE_SUPABASE_SERVICE_ROLE_KEY = os.environ.get("STANDALONE_SUPABASE_SERVICE_ROLE_KEY", "")
-
-STANDALONE_TABLE = "standalone_usage_events"
 EVENTS_TABLE = "generation_events"
 IMAGES_TABLE = "images"
 PROFILES_TABLE = "profiles"
-
-# Local SQLite fallback, only used when the standalone project is unreachable.
-STANDALONE_DB_PATH = os.environ.get(
-    "STANDALONE_DB_PATH", os.path.join(BASE_DIR, "standalone_events.db")
-)
 
 REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN", "")
 
@@ -53,7 +45,7 @@ POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "30"))
 # ------------------------------------------------------------------
 # Viewer access
 # ------------------------------------------------------------------
-# The dashboards name individual designers, list their work emails and show
+# The dashboard names individual designers, lists their work emails and shows
 # per-person activity. On a public URL that is an internal data leak, so
 # viewing is gated by default and the gate fails closed: with no password set
 # the app refuses to serve rather than quietly publishing staff data.
@@ -78,7 +70,7 @@ LAUNCH_DATE = date.fromisoformat(os.environ.get("LAUNCH_DATE", "2026-08-23"))
 # Vocabulary
 # ------------------------------------------------------------------
 # Canonical provider keys used everywhere downstream. The tool logs OpenAI as
-# "openai"; the standalone schema uses "chatgpt". Both normalise to "chatgpt".
+# "openai"; both spellings normalise to "chatgpt".
 PROVIDERS = ["chatgpt", "gemini"]
 
 PROVIDER_ALIASES = {
@@ -101,15 +93,13 @@ OPERATION_ALIASES = {
 
 PROVIDER_LABELS = {"chatgpt": "ChatGPT", "gemini": "Gemini"}
 
-# The three dashboards. The URLs point at the published Claude artifacts so each
-# dashboard can link to the other two; update them if you republish elsewhere.
+# One dashboard, three views: both models together, then each on its own.
+# No absolute URLs, so _nav falls back to the served path and NAV_JS rewrites
+# it for a page opened straight off disk.
 NAV_ITEMS = [
-    {"variant": "overall", "label": "Tool Usage",
-     "url": "https://claude.ai/code/artifact/d48f20cd-43b3-4aca-9bdd-bc493b88cdd4"},
-    {"variant": "chatgpt", "label": "ChatGPT Standalone",
-     "url": "https://claude.ai/code/artifact/d392e652-2ff2-4838-aabc-917f9cf4c70e"},
-    {"variant": "gemini", "label": "Gemini Standalone",
-     "url": "https://claude.ai/code/artifact/ed81e812-5543-46a1-bdac-52320f1255e9"},
+    {"variant": "overall", "label": "Overall"},
+    {"variant": "chatgpt", "label": "ChatGPT"},
+    {"variant": "gemini", "label": "Gemini"},
 ]
 
 VARIANTS = ["overall", "chatgpt", "gemini"]
@@ -125,7 +115,3 @@ def normalize_operation(value):
 
 def tool_configured():
     return bool(TOOL_SUPABASE_URL and TOOL_SUPABASE_API_KEY)
-
-
-def standalone_configured():
-    return bool(STANDALONE_SUPABASE_URL and STANDALONE_SUPABASE_SERVICE_ROLE_KEY)

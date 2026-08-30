@@ -26,7 +26,7 @@ def data_hash(dataset):
             "retention": dataset["retention"],
             "reliability": dataset["reliability"],
             "quality": dataset["quality"],
-            "substitution": dataset["substitution"],
+            "mix": dataset["mix"],
         },
         sort_keys=True,
         default=str,
@@ -73,7 +73,7 @@ def write_dashboards(dataset, out_dir=None, suffix=""):
         "reliability": dataset["reliability"],
         "latency": dataset["latency"],
         "quality": dataset["quality"],
-        "substitution": dataset["substitution"],
+        "mix": dataset["mix"],
         "weeks": dataset["weeks"],
         "designers": dataset["designers"],
         "last_generated": dataset.get("generated_at") or datetime.now(timezone.utc).isoformat(),
@@ -97,23 +97,17 @@ def main():
     meta = dataset["meta"]
 
     print(f"Tool events:       {meta['tool_event_count']}")
-    print(f"Direct events:     {meta['direct_event_count']}"
-          + ("" if meta["standalone_connected"] else "  (standalone project not configured)"))
     print(f"Provisioned:       {meta['eligible_designers']}")
-    print(f"Tool adoption:     {meta['tool_adoption_pct']}% "
+    print(f"Adoption:          {meta['tool_adoption_pct']}% "
           f"({meta['tool_adopters']}/{meta['eligible_designers']})")
-    print(f"Direct adoption:   {meta['direct_adoption_pct']}% "
-          f"({meta['direct_adopters']}/{meta['eligible_designers']})")
+    for prov in config.PROVIDERS:
+        m = dataset["mix"][prov]
+        print(f"  {config.PROVIDER_LABELS[prov]:<8} "
+              f"{m['actions']:>4} actions  {m['users']} users  "
+              f"{m['share_pct']}% of volume")
     print(f"Returning users:   {dataset['retention']['repeat_pct']}%")
     print(f"Success rate:      {dataset['reliability']['all']['success_pct']}%")
     print(f"Save rate:         {dataset['quality']['all']['save_pct']}%")
-
-    if meta["direct_event_count"] == 0:
-        print(
-            "\nNOTE: no direct/outside-the-tool events yet, so the ChatGPT and Gemini\n"
-            "standalone dashboards show a zero direct channel. Feed them via\n"
-            "POST /log-standalone or POST /import-standalone (see app.py)."
-        )
 
     for path in write_dashboards(dataset):
         print(f"Wrote {path}")

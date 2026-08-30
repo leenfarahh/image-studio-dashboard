@@ -1,5 +1,4 @@
-"""Fetch layer: pulls raw rows from the tool project and the standalone project."""
-import sqlite3
+"""Fetch layer: pulls raw rows from the tool's Supabase project."""
 from datetime import datetime
 
 import requests
@@ -64,7 +63,6 @@ def fetch_tool_events(since):
         if not provider or not operation or ts is None:
             continue
         events.append({
-            "source": "tool",
             "provider": provider,
             "operation": operation,
             "user_id": r.get("user_id"),
@@ -124,65 +122,9 @@ def fetch_profiles():
     } for r in rows]
 
 
-# ------------------------------------------------------------------
-# Standalone project (direct ChatGPT / Gemini use, outside the tool)
-# ------------------------------------------------------------------
-def fetch_standalone_events(since):
-    if config.standalone_configured():
-        rows = _paginated_get(
-            config.STANDALONE_SUPABASE_URL,
-            config.STANDALONE_SUPABASE_SERVICE_ROLE_KEY,
-            config.STANDALONE_TABLE,
-            {
-                "select": "provider,user_id,operation,model,source,created_at",
-                "created_at": f"gte.{since.isoformat()}",
-                "order": "created_at.asc",
-            },
-        )
-    else:
-        rows = _read_sqlite_events()
-
-    events = []
-    for r in rows:
-        provider = config.normalize_provider(r.get("provider"))
-        operation = config.normalize_operation(r.get("operation"))
-        ts = parse_ts(r.get("created_at"))
-        if not provider or not operation or ts is None:
-            continue
-        events.append({
-            "source": "direct",
-            "provider": provider,
-            "operation": operation,
-            "user_id": (r.get("user_id") or "").strip().lower(),
-            "model": r.get("model"),
-            "origin": r.get("source"),
-            "success": True,
-            "latency_ms": None,
-            "ts": ts,
-        })
-    return events
-
-
-def _read_sqlite_events():
-    conn = sqlite3.connect(config.STANDALONE_DB_PATH)
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT provider, user_id, operation, model, source, created_at "
-            "FROM standalone_events ORDER BY created_at ASC"
-        )
-        cols = ["provider", "user_id", "operation", "model", "source", "created_at"]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
-    except sqlite3.OperationalError:
-        return []
-    finally:
-        conn.close()
-
-
 def load_all(since):
     return {
         "tool_events": fetch_tool_events(since),
         "images": fetch_images(since),
         "profiles": fetch_profiles(),
-        "standalone_events": fetch_standalone_events(since),
     }

@@ -1,184 +1,26 @@
-"""Ingestion + refresh service for the adoption dashboards.
+"""Refresh + serve layer for the adoption dashboard.
 
 Endpoints
-    POST /log-standalone     one direct (outside-the-tool) usage event
-    POST /import-standalone  bulk CSV import from a vendor admin export
-    POST /refresh            re-pull everything and rebuild the three dashboards
-    GET  /dashboard/<name>   serve a rendered dashboard
+    POST /refresh            re-pull everything and rebuild the three views
+    GET  /dashboard/<name>   serve a rendered view (overall, chatgpt, gemini)
     GET  /dashboard_data.json
     GET  /health
 
-Writes to public.standalone_usage_events in the standalone Supabase project,
-falling back to a local SQLite file when that project is not configured.
+Read-only with respect to the data: every figure comes from the tool's own
+Supabase project, so there is nothing to write and no ingestion to guard.
 """
-import csv
-import hashlib
-import io
-import json
 import os
 import secrets
-import sqlite3
 import threading
 import time
-from datetime import date, datetime, timezone
+from datetime import date
 
-import requests
 from flask import Flask, abort, jsonify, make_response, request, send_from_directory
 
 import config
 import image_generation_dashboard_sync as sync
 
 app = Flask(__name__)
-
-VALID_OPERATIONS = {"generate", "refine"}
-
-
-# ------------------------------------------------------------------
-# Storage
-# ------------------------------------------------------------------
-def _supabase_headers():
-    key = config.STANDALONE_SUPABASE_SERVICE_ROLE_KEY
-    return {
-        "apikey": key,
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=ignore-duplicates,return=minimal",
-    }
-
-
-def init_sqlite():
-    conn = sqlite3.connect(config.STANDALONE_DB_PATH)
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS standalone_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            provider TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            operation TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            source TEXT,
-            model TEXT,
-            metadata TEXT,
-            dedupe_key TEXT UNIQUE
-        )
-        """
-    )
-    # Older builds of this table lacked these columns.
-    existing = {r[1] for r in conn.execute("PRAGMA table_info(standalone_events)")}
-    for col in ("source", "model", "dedupe_key"):
-        if col not in existing:
-            conn.execute(f"ALTER TABLE standalone_events ADD COLUMN {col} TEXT")
-    conn.commit()
-    conn.close()
-
-
-init_sqlite()
-
-
-def _dedupe_key(row):
-    """Stable hash so re-importing the same CSV does not double-count."""
-    raw = "|".join([
-        row["provider"], row["user_id"], row["operation"],
-        row["created_at"], row.get("model") or "",
-    ])
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
-
-
-def normalize_row(payload):
-    """Validate and canonicalise one incoming event. Raises ValueError."""
-    provider = config.normalize_provider(payload.get("provider"))
-    if provider not in config.PROVIDERS:
-        raise ValueError(
-            f"provider must be one of {config.PROVIDERS} (got {payload.get('provider')!r})"
-        )
-
-    operation = config.normalize_operation(payload.get("operation"))
-    if operation not in VALID_OPERATIONS:
-        raise ValueError(
-            f"operation must map to generate or refine (got {payload.get('operation')!r})"
-        )
-
-    user_id = str(payload.get("user_id") or "").strip().lower()
-    if not user_id:
-        raise ValueError("user_id is required (use the designer's work email)")
-
-    created_at = payload.get("created_at")
-    if created_at:
-        try:
-            ts = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
-        except ValueError:
-            raise ValueError(f"created_at is not ISO-8601: {created_at!r}")
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
-    else:
-        ts = datetime.now(timezone.utc)
-
-    row = {
-        "provider": provider,
-        "user_id": user_id,
-        "operation": operation,
-        "created_at": ts.isoformat(),
-        "source": payload.get("source") or "manual",
-        "model": payload.get("model"),
-        "metadata": payload.get("metadata") or {},
-    }
-    row["dedupe_key"] = _dedupe_key(row)
-    return row
-
-
-def insert_rows(rows):
-    """Insert canonical rows. Returns the number accepted."""
-    if not rows:
-        return 0
-
-    if config.standalone_configured():
-        payload = [{
-            "provider": r["provider"],
-            "user_id": r["user_id"],
-            "operation": r["operation"],
-            "created_at": r["created_at"],
-            "source": r["source"],
-            "model": r["model"],
-            "metadata": r["metadata"],
-        } for r in rows]
-        resp = requests.post(
-            f"{config.STANDALONE_SUPABASE_URL.rstrip('/')}/rest/v1/{config.STANDALONE_TABLE}",
-            headers=_supabase_headers(),
-            json=payload,
-            timeout=30,
-        )
-        if resp.status_code not in (200, 201, 204):
-            raise RuntimeError(
-                f"Supabase insert failed ({resp.status_code}): {resp.text[:400]}"
-            )
-        return len(payload)
-
-    # Render's filesystem is ephemeral, so a silent SQLite fallback there
-    # would accept events and lose them on the next restart. Fail loudly.
-    if os.environ.get("RENDER"):
-        raise RuntimeError(
-            "STANDALONE_SUPABASE_URL / _SERVICE_ROLE_KEY are not configured. "
-            "Refusing the SQLite fallback on an ephemeral filesystem, since "
-            "those events would be lost on restart."
-        )
-
-    conn = sqlite3.connect(config.STANDALONE_DB_PATH)
-    accepted = 0
-    try:
-        for r in rows:
-            cur = conn.execute(
-                "INSERT OR IGNORE INTO standalone_events "
-                "(provider, user_id, operation, created_at, source, model, metadata, dedupe_key) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (r["provider"], r["user_id"], r["operation"], r["created_at"],
-                 r["source"], r["model"], json.dumps(r["metadata"]), r["dedupe_key"]),
-            )
-            accepted += cur.rowcount
-        conn.commit()
-    finally:
-        conn.close()
-    return accepted
-
 
 # ------------------------------------------------------------------
 # Auth
@@ -219,67 +61,6 @@ def require_viewer():
 # ------------------------------------------------------------------
 # Routes
 # ------------------------------------------------------------------
-@app.post("/log-standalone")
-def log_standalone():
-    require_token()
-    if not request.is_json:
-        return jsonify({"error": "expected application/json"}), 400
-    try:
-        row = normalize_row(request.get_json())
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    try:
-        insert_rows([row])
-    except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 502
-    return jsonify({"status": "ok", "stored": 1}), 201
-
-
-@app.post("/import-standalone")
-def import_standalone():
-    """Bulk import. Accepts a CSV upload (field name `file`) or a raw CSV body
-    with columns: provider,user_id,operation[,created_at][,model][,source]."""
-    require_token()
-
-    if "file" in request.files:
-        text = request.files["file"].read().decode("utf-8-sig")
-    else:
-        text = request.get_data(as_text=True)
-    if not text.strip():
-        return jsonify({"error": "no CSV content supplied"}), 400
-
-    reader = csv.DictReader(io.StringIO(text))
-    if not reader.fieldnames:
-        return jsonify({"error": "CSV has no header row"}), 400
-
-    rows, errors = [], []
-    for line_no, raw in enumerate(reader, start=2):
-        clean = {(k or "").strip().lower(): (v or "").strip()
-                 for k, v in raw.items() if k}
-        try:
-            rows.append(normalize_row(clean))
-        except ValueError as exc:
-            errors.append({"line": line_no, "error": str(exc)})
-        if len(errors) >= 25:
-            break
-
-    if errors and not rows:
-        return jsonify({"error": "no valid rows", "details": errors}), 400
-
-    try:
-        stored = insert_rows(rows)
-    except RuntimeError as exc:
-        return jsonify({"error": str(exc)}), 502
-
-    return jsonify({
-        "status": "ok",
-        "parsed": len(rows),
-        "stored": stored,
-        "rejected": len(errors),
-        "details": errors[:25],
-    }), 201
-
-
 @app.post("/refresh")
 def refresh():
     require_token()
@@ -294,12 +75,12 @@ def refresh():
 
 
 INDEX_CARDS = [
-    ("overall", "Tool Usage",
-     "Everything generated through the MCP tool, both models."),
-    ("chatgpt", "ChatGPT Standalone",
-     "ChatGPT used directly, outside the tool, vs. in-tool."),
-    ("gemini", "Gemini Standalone",
-     "Gemini used directly, outside the tool, vs. in-tool."),
+    ("overall", "Overall",
+     "Everything generated through the tool, both models combined."),
+    ("chatgpt", "ChatGPT",
+     "ChatGPT image generation in the tool: volume, reliability, save rate."),
+    ("gemini", "Gemini",
+     "Gemini image generation in the tool: volume, reliability, save rate."),
 ]
 
 
@@ -376,9 +157,10 @@ def index():
 </style></head>
 <body><div class="wrap">
   <p class="eyebrow">Adoption</p>
-  <h1>Image Generator dashboards</h1>
-  <p class="sub">Adoption tracking for the Image Generator MCP tool and for
-    ChatGPT and Gemini used directly outside it.</p>
+  <h1>Image Generator adoption</h1>
+  <p class="sub">Every image generated through the Image Generator MCP tool,
+    measured against the designers provisioned on it. Both models together,
+    then each on its own.</p>
   <div class="grid">{cards}</div>
   {warning}
   <h3>Endpoints</h3>
@@ -386,8 +168,6 @@ def index():
     <tr><td>GET /health</td><td>Configuration and connection status</td></tr>
     <tr><td>GET /dashboard_data.json</td><td>All computed metrics as JSON</td></tr>
     <tr><td>POST /refresh</td><td>Re-pull and rebuild (bearer token)</td></tr>
-    <tr><td>POST /log-standalone</td><td>Log one direct usage event (bearer token)</td></tr>
-    <tr><td>POST /import-standalone</td><td>Bulk CSV import (bearer token)</td></tr>
   </table>
 </div></body></html>"""
 
@@ -498,9 +278,6 @@ def health():
         "status": "ok",
         "launch_date": config.LAUNCH_DATE.isoformat(),
         "tool_supabase_configured": config.tool_configured(),
-        "standalone_supabase_configured": config.standalone_configured(),
-        "standalone_table": config.STANDALONE_TABLE,
-        "sqlite_fallback": not config.standalone_configured(),
         "refresh_token_set": bool(config.REFRESH_TOKEN),
     })
 

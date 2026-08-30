@@ -1,12 +1,16 @@
-# Image Generator adoption dashboards
+# Image Generator adoption dashboard
 
-Three dashboards measuring adoption of the Image Generator MCP tool:
+One dashboard measuring adoption of the Image Generator MCP tool, in three views:
 
-| Dashboard | File | Measures |
+| View | File | Measures |
 |---|---|---|
-| Tool usage | `dashboard_overall.html` | All image generation through the MCP tool, both models |
-| ChatGPT standalone | `dashboard_chatgpt.html` | ChatGPT used **directly**, outside the tool, vs. in-tool |
-| Gemini standalone | `dashboard_gemini.html` | Gemini used **directly**, outside the tool, vs. in-tool |
+| Overall | `dashboard_overall.html` | Everything generated through the tool, both models combined |
+| ChatGPT | `dashboard_chatgpt.html` | ChatGPT image generation in the tool |
+| Gemini | `dashboard_gemini.html` | Gemini image generation in the tool |
+
+Every figure describes work that ran **through the tool**. Usage outside it is
+deliberately not tracked: no vendor exposes per-designer image counts, so any
+such number would be self-reported or inferred. See [Why in-tool only](#why-in-tool-only).
 
 ## Rebuild
 
@@ -23,12 +27,11 @@ publishing numbers that are not real.
 | File | Role |
 |---|---|
 | `config.py` | Settings, secrets from `.env`, launch date, provider/operation vocabulary |
-| `datasource.py` | Fetches from both Supabase projects |
-| `metrics.py` | Aggregation: adoption, retention, reliability, substitution |
-| `render.py` | CSS, SVG chart primitives, the three page templates |
+| `datasource.py` | Fetches from the tool's Supabase project |
+| `metrics.py` | Aggregation: adoption, retention, reliability, model mix |
+| `render.py` | CSS, SVG chart primitives, the page templates |
 | `image_generation_dashboard_sync.py` | CLI entry point |
-| `app.py` | Flask service: ingestion, refresh, serving |
-| `standalone_usage_schema.sql` | Schema for the standalone (direct-usage) project |
+| `app.py` | Flask service: refresh and serving |
 
 ## Serving
 
@@ -36,14 +39,14 @@ publishing numbers that are not real.
 python app.py     # http://127.0.0.1:8080
 ```
 
-`/` is an index linking to all three dashboards. Individual pages are at
-`/dashboard/overall`, `/dashboard/chatgpt` and `/dashboard/gemini`. The dev
-server does not auto-reload, so restart it after changing **code** (data
-refreshes on its own, see below).
+`/` is an index linking to all three views, which live at `/dashboard/overall`,
+`/dashboard/chatgpt` and `/dashboard/gemini`. The dev server does not
+auto-reload, so restart it after changing **code** (data refreshes on its own,
+see below).
 
 ### Auto-refresh
 
-A served dashboard keeps itself current. There are three layers:
+A served view keeps itself current. There are three layers:
 
 1. **On load.** If the data is older than `AUTO_REFRESH_SECONDS` (default 120),
    serving the page re-pulls from Supabase first. A rebuild takes about 3s,
@@ -60,11 +63,11 @@ server cannot be reached.
 
 If Supabase is unreachable, the last good build stays on disk and keeps being
 served; the error surfaces through `/api/status` rather than replacing a
-working dashboard with an error page.
+working page with an error page.
 
-The refresh bar only appears when `app.py` is serving the page. A published
-artifact or a file opened from disk is a static snapshot with no server to ask,
-so the bar stays hidden rather than offering a button that cannot work.
+The refresh bar only appears when `app.py` is serving the page. A file opened
+straight off disk is a static snapshot with no server to ask, so the bar stays
+hidden rather than offering a button that cannot work.
 
 ## Deploying to Render
 
@@ -77,33 +80,35 @@ create a Web Service manually with:
 
 - Build command: `pip install -r requirements.txt`
 - Start command: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 60`
-- Health check path: `/health`
+- Health check path: `/health` (under **Advanced** on the manual form)
 
 Set these in the Render dashboard, never in the repo:
 
 | Variable | Notes |
 |---|---|
-| `TOOL_SUPABASE_URL` / `TOOL_SUPABASE_API_KEY` | The tool's project |
-| `STANDALONE_SUPABASE_URL` / `..._SERVICE_ROLE_KEY` | Direct-usage project |
+| `TOOL_SUPABASE_URL` / `TOOL_SUPABASE_API_KEY` | The tool's project, the only data source |
 | `DASHBOARD_PASSWORD` | **Required.** Without it the app refuses to serve |
 | `DASHBOARD_USER` | Defaults to `prezlab` |
-| `REFRESH_TOKEN` | Guards the ingestion and refresh endpoints |
+| `REFRESH_TOKEN` | Guards `POST /refresh` |
 | `LAUNCH_DATE` | Must not post-date the first real event |
+| `PYTHON_VERSION` | **Required.** Render ignores `runtime.txt` and otherwise picks its own default |
+
+Do **not** set `PORT`. Render assigns one and injects it; overriding it makes
+gunicorn bind a port the health check is not probing.
 
 ### Access control
 
-The dashboards name individual designers and show their work emails and
-per-person activity. Viewing is therefore gated by HTTP Basic auth and the gate
-**fails closed**: with no `DASHBOARD_PASSWORD` set, every page returns 503
-rather than publishing staff data to anyone holding the URL. `/health` stays
-open so Render's health check works. To publish deliberately, set
+The views name individual designers and show their work emails and per-person
+activity. Viewing is therefore gated by HTTP Basic auth and the gate **fails
+closed**: with no `DASHBOARD_PASSWORD` set, every page returns 503 rather than
+publishing staff data to anyone holding the URL. `/health` stays open so
+Render's health check works. To publish deliberately, set
 `ALLOW_PUBLIC_DASHBOARDS=1`.
 
 ### Notes on the platform
 
 - **Ephemeral filesystem.** Generated HTML is rebuilt on demand, so losing it on
-  restart is harmless. The SQLite fallback is *not* harmless, so it is refused
-  when `RENDER` is set: configure the standalone Supabase project instead.
+  restart is harmless. Nothing is written that needs to survive a restart.
 - **Multiple workers.** Each gunicorn worker keeps its own refresh cache and
   rebuilds independently. Files are written to a temp path and renamed, so
   concurrent rebuilds cannot produce a half-written page.
@@ -111,51 +116,34 @@ open so Render's health check works. To publish deliberately, set
   spin-up and a ~3s rebuild.
 - **UTC.** Render runs in UTC, so generated timestamps display in UTC.
 
-## The two data sources
+## The data source
 
-**In-tool usage** comes from the tool's own Supabase project: `generation_events`
-(including failures), `images` (for save rate and refine chains) and `profiles`
-(the adoption denominator). This flows automatically.
+Everything comes from the tool's own Supabase project:
 
-**Direct usage** — ChatGPT or Gemini used outside the tool — has no automatic
-feed. The vendor consoles do not push per-designer image counts anywhere, so it
-must be supplied. Until it is, dashboards 2 and 3 show a zero direct channel and
-say so on the page; that is a missing feed, not a measured zero.
+- `generation_events` — every attempt, **including failures**. Reliability is an
+  adoption driver, and filtering on `success = true` makes every error invisible.
+- `images` — save rate and refine chains.
+- `profiles` — the adoption denominator.
 
-### Feeding direct usage
+This flows automatically. There is nothing to feed in and no ingestion endpoint.
 
-Both endpoints need `Authorization: Bearer $REFRESH_TOKEN`.
+### Why in-tool only
 
-Single event:
+An earlier version tracked ChatGPT and Gemini used *outside* the tool, fed by a
+second Supabase project and two ingestion endpoints. That channel is gone.
 
-```bash
-curl -X POST https://<host>/log-standalone \
-  -H "Authorization: Bearer $REFRESH_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"provider":"chatgpt","user_id":"designer@prezlab.com","operation":"generate"}'
-```
+Nothing reports it. OpenAI's Admin and Cost APIs cover API platform traffic, not
+what someone does on chatgpt.com, and per-user Gemini reporting requires Google
+Workspace. Without a vendor workspace the only feeds available are self-reporting
+or network-level monitoring, and neither yields a per-image count.
 
-Bulk, from an admin-console export:
-
-```bash
-curl -X POST https://<host>/import-standalone \
-  -H "Authorization: Bearer $REFRESH_TOKEN" \
-  -F file=@chatgpt_august.csv
-```
-
-CSV columns: `provider,user_id,operation[,created_at][,model][,source]`.
-
-Rows carry a `dedupe_key`, so re-importing the same export does not double-count.
-Invalid rows are rejected individually and reported back with line numbers; valid
-rows in the same file still import.
-
-`user_id` must be the designer's **work email**, lowercased. That is what joins
-this data to `profiles` and lets the dashboards tell "uses ChatGPT directly but
-never through the tool" apart from "has not started".
+A channel that is always zero is worse than no channel: it reads as a measured
+finding when it is a missing feed. If a ChatGPT Business or Enterprise workspace
+is provisioned later, the workspace analytics export is the path to revisit.
 
 ## No sample data, ever
 
-These dashboards render live data or zero. There is no sample-data path and no
+These views render live data or zero. There is no sample-data path and no
 placeholder values. Specifically:
 
 - No usage means every count and percentage reads `0`, not a dash or a blank.
@@ -163,8 +151,8 @@ placeholder values. Specifically:
   It does **not** read 100%, which would assert reliability off an empty sample.
 - Latency with no samples reads `0.0s`.
 - Last-used with no activity reads `Never`, since a date has no zero.
-- Where a whole channel has no feed yet, the page says so in plain language
-  rather than implying a measured zero.
+- A provider view with no activity says so in plain language, and says
+  explicitly that the zero is measured rather than missing.
 
 Earlier fabricated sample dashboards were moved to `_archive/`. Do not publish
 them.
@@ -182,10 +170,12 @@ them.
   "Tried once" and "adopted" are not the same thing.
 - **Save rate** — share of generated images with `saved = true`. The strongest
   available signal that a render was good enough to use.
-- **Tool share** — in-tool actions over all actions for that model. The
-  substitution metric: is image work running through the tool or around it?
-- **Direct only** — people using a model directly who have never used it in the
-  tool. The conversion list.
+- **Share of volume** — one model's successful actions over all successful
+  in-tool actions. Which model the work actually runs on.
+- **Refines per generate** — reworks divided by first-pass generations. A high
+  ratio means that model takes more iterations before anyone keeps the result.
+- **Model only / both** — designers who have settled on one model versus those
+  who reach for either.
 
 ## Configuration
 
@@ -194,23 +184,21 @@ them.
 ```
 TOOL_SUPABASE_URL=...
 TOOL_SUPABASE_API_KEY=...
-STANDALONE_SUPABASE_URL=...
-STANDALONE_SUPABASE_SERVICE_ROLE_KEY=...
 REFRESH_TOKEN=...
+DASHBOARD_USER=prezlab
+DASHBOARD_PASSWORD=...
 LAUNCH_DATE=2026-08-23     # must not post-date the first real event
-PORT=8080
+PORT=8080                  # local dev only, never set this on Render
 ```
 
 `LAUNCH_DATE` is applied as a `gte` filter on every fetch. Setting it later than
 your first event silently drops history rather than erroring.
 
-If the standalone project is unreachable, ingestion falls back to a local SQLite
-file at `STANDALONE_DB_PATH`.
-
 ## Chart palette
 
 The categorical hues, the funnel ramp and the status steps were validated with
 the data-viz palette checker in both light and dark mode (lightness band, chroma
-floor, CVD separation, normal-vision floor, contrast). Notably, violet fails
-against the ChatGPT blue in dark mode, which is why the direct-usage channel is
-teal. Re-run the validator before changing any of them.
+floor, CVD separation, normal-vision floor, contrast). Re-run the validator
+before changing any of them. Provider views encode generate against refine as
+the model's own hue against a neutral grey, so the two never compete with the
+categorical pair on the overall view.
