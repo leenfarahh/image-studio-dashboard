@@ -120,40 +120,45 @@ def index():
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Image Generator Adoption</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
 <style>
-  :root {{ color-scheme: light; --plane:#f9f9f7; --tile:#fff; --ink:#0b0b0b;
-    --ink-2:#52514e; --muted:#898781; --border:rgba(11,11,11,.10); --accent:#4a3aa7; }}
+  :root {{ color-scheme: light; --plane:#f5efe8; --tile:#fffefd; --ink:#002528;
+    --ink-2:#425a5d; --muted:#728486; --border:rgba(0,37,40,.12); --accent:#002528;
+    --rule:#b6edf3; }}
   @media (prefers-color-scheme: dark) {{
-    :root {{ color-scheme: dark; --plane:#0d0d0d; --tile:#202020; --ink:#fff;
-      --ink-2:#c3c2b7; --muted:#898781; --border:rgba(255,255,255,.10); --accent:#9085e9; }}
+    :root {{ color-scheme: dark; --plane:#0a1c1e; --tile:#173235; --ink:#eef8f9;
+      --ink-2:#acc3c5; --muted:#839698; --border:rgba(182,237,243,.14);
+      --accent:#b6edf3; --rule:#00939f; }}
   }}
   * {{ box-sizing: border-box; }}
   body {{ margin:0; background:var(--plane); color:var(--ink);
-    font-family:"IBM Plex Sans",system-ui,sans-serif; padding:40px clamp(16px,5vw,56px); }}
+    font-family:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif; padding:40px clamp(16px,5vw,56px); }}
   .wrap {{ max-width:1000px; margin:0 auto; }}
   .eyebrow {{ font-size:12px; font-weight:600; letter-spacing:.08em;
     text-transform:uppercase; color:var(--accent); margin:0 0 6px; }}
-  h1 {{ font-size:clamp(24px,3.4vw,32px); margin:0 0 8px; }}
+  h1 {{ font-family:"PP Editorial New",Georgia,"Iowan Old Style",serif;
+    font-weight:400; font-size:clamp(28px,4vw,40px); letter-spacing:-.01em;
+    margin:0 0 8px; }}
   .sub {{ color:var(--ink-2); margin:0 0 28px; max-width:62ch; font-size:14.5px; }}
   .grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }}
   .card {{ display:block; background:var(--tile); border:1px solid var(--border);
     border-radius:12px; padding:20px; text-decoration:none; color:inherit; }}
-  a.card:hover {{ border-color:var(--accent); }}
+  a.card:hover {{ border-color:var(--accent); box-shadow:inset 3px 0 0 var(--rule); }}
   .card h2 {{ font-size:16px; margin:0 0 6px; }}
   .card p {{ font-size:13px; color:var(--ink-2); margin:0 0 14px; }}
   .go {{ font-size:12.5px; font-weight:600; color:var(--accent); }}
   .card.is-missing {{ opacity:.55; }} .card.is-missing .go {{ color:var(--muted); }}
   .warn {{ font-size:13px; color:var(--ink-2); background:var(--tile);
     border:1px dashed var(--border); border-radius:10px; padding:14px 16px; margin:18px 0 0; }}
-  code {{ font-family:"IBM Plex Mono",monospace; font-size:12px;
+  code {{ font-family:"Figtree",ui-monospace,monospace; font-variant-numeric:tabular-nums; font-size:12px;
     background:var(--plane); padding:1px 5px; border-radius:4px; }}
   table {{ width:100%; border-collapse:collapse; font-size:13px; margin-top:10px; }}
   td {{ padding:7px 0; border-bottom:1px solid var(--border); color:var(--ink-2); }}
-  td:first-child {{ font-family:"IBM Plex Mono",monospace; color:var(--ink);
+  td:first-child {{ font-family:"Figtree",ui-monospace,monospace; font-variant-numeric:tabular-nums; color:var(--ink);
     white-space:nowrap; padding-right:18px; }}
   h3 {{ font-size:13px; text-transform:uppercase; letter-spacing:.04em;
-    color:var(--muted); margin:36px 0 0; }}
+    color:var(--muted); margin:36px 0 0; padding-top:14px;
+    border-top:2px solid var(--rule); }}
 </style></head>
 <body><div class="wrap">
   <p class="eyebrow">Adoption</p>

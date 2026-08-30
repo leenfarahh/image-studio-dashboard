@@ -15,31 +15,32 @@ import config
 # ============================================================
 CSS = """
 <title>__TITLE__</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
 <style>
   .dash {
     color-scheme: light;
-    --surface: #fcfcfb;
-    --plane: #f9f9f7;
-    --ink: #0b0b0b;
-    --ink-2: #52514e;
-    --ink-muted: #898781;
-    --grid: #e1e0d9;
-    --baseline: #c3c2b7;
-    --border: rgba(11,11,11,0.10);
-    --chatgpt: #2a78d6;
-    --chatgpt-tint: color-mix(in oklch, #2a78d6 55%, white);
-    --gemini: #eb6834;
-    --gemini-tint: color-mix(in oklch, #eb6834 55%, white);
-    --accent: #4a3aa7;
-    --accent-tint: color-mix(in oklch, #4a3aa7 15%, white);
+    --surface: #fdfcfb;
+    --plane: #f5efe8;
+    --ink: #002528;
+    --ink-2: #425a5d;
+    --ink-muted: #728486;
+    --grid: #e6ddd2;
+    --baseline: #cdbfae;
+    --border: rgba(0,37,40,0.12);
+    --chatgpt: #00939f;
+    --chatgpt-tint: #67bec6;
+    --gemini: #c65d26;
+    --gemini-tint: #e69875;
+    --accent: #002528;
+    --accent-tint: #b6edf3;
+    --sand: #e3d8cc;
     --tile-bg: #ffffff;
-    /* ordinal ramp for the adoption funnel - one hue, monotone lightness */
-    --step-1: #86b6ef;
-    --step-2: #5598e7;
-    --step-3: #2a78d6;
-    --step-4: #184f95;
-    /* status - always paired with an icon + label, never colour alone */
+    /* ordinal ramp for the adoption funnel - brand teal, monotone lightness */
+    --step-1: #6ac1c9;
+    --step-2: #34a4ad;
+    --step-3: #008994;
+    --step-4: #00616a;
+    /* status - reserved meaning, always paired with an icon + label */
     --good: #0ca30c;
     --warning: #fab219;
     --critical: #d03b3b;
@@ -47,25 +48,26 @@ CSS = """
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) .dash {
       color-scheme: dark;
-      --surface: #1a1a19;
-      --plane: #0d0d0d;
-      --ink: #ffffff;
-      --ink-2: #c3c2b7;
-      --ink-muted: #898781;
-      --grid: #2c2c2a;
-      --baseline: #383835;
-      --border: rgba(255,255,255,0.10);
-      --chatgpt: #3987e5;
-      --chatgpt-tint: color-mix(in oklch, #3987e5 55%, white 20%);
-      --gemini: #d95926;
-      --gemini-tint: color-mix(in oklch, #d95926 55%, white 20%);
-      --accent: #9085e9;
-      --accent-tint: color-mix(in oklch, #9085e9 18%, #1a1a19);
-      --tile-bg: #202020;
-      --step-1: #cde2fb;
-      --step-2: #86b6ef;
-      --step-3: #3987e5;
-      --step-4: #184f95;
+      --surface: #12292b;
+      --plane: #0a1c1e;
+      --ink: #eef8f9;
+      --ink-2: #acc3c5;
+      --ink-muted: #839698;
+      --grid: #1f3c3f;
+      --baseline: #2f5559;
+      --border: rgba(182,237,243,0.14);
+      --chatgpt: #00a1ac;
+      --chatgpt-tint: #74cbd3;
+      --gemini: #cd632d;
+      --gemini-tint: #f0a27f;
+      --accent: #b6edf3;
+      --accent-tint: #0e3c40;
+      --sand: #3a332c;
+      --tile-bg: #173235;
+      --step-1: #7ccdd5;
+      --step-2: #40b1ba;
+      --step-3: #00939f;
+      --step-4: #006d76;
       --good: #0ca30c;
       --warning: #fab219;
       --critical: #d03b3b;
@@ -73,25 +75,26 @@ CSS = """
   }
   :root[data-theme="dark"] .dash {
     color-scheme: dark;
-    --surface: #1a1a19;
-    --plane: #0d0d0d;
-    --ink: #ffffff;
-    --ink-2: #c3c2b7;
-    --ink-muted: #898781;
-    --grid: #2c2c2a;
-    --baseline: #383835;
-    --border: rgba(255,255,255,0.10);
-    --chatgpt: #3987e5;
-    --chatgpt-tint: color-mix(in oklch, #3987e5 55%, white 20%);
-    --gemini: #d95926;
-    --gemini-tint: color-mix(in oklch, #d95926 55%, white 20%);
-    --accent: #9085e9;
-    --accent-tint: color-mix(in oklch, #9085e9 18%, #1a1a19);
-    --tile-bg: #202020;
-    --step-1: #cde2fb;
-    --step-2: #86b6ef;
-    --step-3: #3987e5;
-    --step-4: #184f95;
+    --surface: #12292b;
+    --plane: #0a1c1e;
+    --ink: #eef8f9;
+    --ink-2: #acc3c5;
+    --ink-muted: #839698;
+    --grid: #1f3c3f;
+    --baseline: #2f5559;
+    --border: rgba(182,237,243,0.14);
+    --chatgpt: #00a1ac;
+    --chatgpt-tint: #74cbd3;
+    --gemini: #cd632d;
+    --gemini-tint: #f0a27f;
+    --accent: #b6edf3;
+    --accent-tint: #0e3c40;
+    --sand: #3a332c;
+    --tile-bg: #173235;
+    --step-1: #7ccdd5;
+    --step-2: #40b1ba;
+    --step-3: #00939f;
+    --step-4: #006d76;
     --good: #0ca30c;
     --warning: #fab219;
     --critical: #d03b3b;
@@ -100,13 +103,13 @@ CSS = """
   .dash {
     background: var(--plane);
     color: var(--ink);
-    font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-family: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
     padding: 28px clamp(16px, 4vw, 48px) 56px;
     min-height: 100%;
     box-sizing: border-box;
   }
   .dash *, .dash *::before, .dash *::after { box-sizing: border-box; }
-  .dash .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .dash .mono { font-family: "Figtree", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 
   .dash-header {
     display: flex; flex-wrap: wrap; justify-content: space-between;
@@ -116,7 +119,11 @@ CSS = """
     font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
     text-transform: uppercase; color: var(--accent); margin: 0 0 6px;
   }
-  .dash-title { font-size: clamp(22px, 3vw, 30px); font-weight: 700; margin: 0 0 6px; text-wrap: balance; }
+  /* PP Editorial New is a licensed face with no webfont available here, so it
+     leads the stack and falls back to a serif the reader already has. */
+  .dash-title { font-family: "PP Editorial New", Georgia, "Iowan Old Style", serif;
+    font-size: clamp(26px, 3.4vw, 38px); font-weight: 400; letter-spacing: -0.01em;
+    margin: 0 0 6px; text-wrap: balance; }
   .dash-sub { font-size: 14px; color: var(--ink-2); margin: 0; max-width: 62ch; }
   .dash-nav { display: flex; gap: 6px; flex-wrap: wrap; }
   .dash-nav a, .dash-nav span {
@@ -213,7 +220,7 @@ CSS = """
   }
   .empty-state b { color: var(--ink); }
   .empty-state code {
-    font-family: "IBM Plex Mono", monospace; font-size: 12px;
+    font-family: "Figtree", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 12px;
     background: var(--grid); padding: 1px 5px; border-radius: 4px;
   }
 
@@ -260,7 +267,7 @@ CSS = """
   .refresh-bar.is-error .dot { background: var(--critical);
     box-shadow: 0 0 0 3px color-mix(in oklch, var(--critical) 20%, transparent); }
   .refresh-btn {
-    font: 600 12.5px/1 "IBM Plex Sans", system-ui, sans-serif;
+    font: 600 12.5px/1 "Figtree", system-ui, sans-serif;
     color: var(--accent); background: transparent; cursor: pointer;
     border: 1px solid var(--border); border-radius: 999px; padding: 7px 14px;
   }
@@ -270,7 +277,7 @@ CSS = """
   svg.chart-svg { display: block; width: 100%; height: auto; }
   svg.chart-svg .grid-line { stroke: var(--grid); stroke-width: 1; }
   svg.chart-svg .baseline { stroke: var(--baseline); stroke-width: 1; }
-  svg.chart-svg .axis-label { fill: var(--ink-muted); font-size: 10.5px; font-family: "IBM Plex Mono", monospace; }
+  svg.chart-svg .axis-label { fill: var(--ink-muted); font-size: 10.5px; font-family: "Figtree", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
   svg.chart-svg .crosshair { stroke: var(--ink-muted); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0; }
 </style>
 """
@@ -894,8 +901,8 @@ def render_overall(dataset, nav_items):
       <div class="panel-head">
         <p class="panel-title">Active users &amp; cumulative adopters</p>
         <div class="panel-legend">
-          <span><span class="legend-dot" style="background:var(--accent)"></span>Active / week</span>
-          <span><span class="legend-dot" style="background:var(--ink-muted)"></span>Cumulative adopters</span>
+          <span><span class="legend-dot" style="background:var(--step-3)"></span>Active / week</span>
+          <span><span class="legend-dot" style="background:var(--step-1)"></span>Cumulative adopters</span>
         </div>
       </div>
       <div id="chart-users"></div>
@@ -941,8 +948,8 @@ def render_overall(dataset, nav_items):
     {key: "tool_gemini_total",  label: "Gemini",  color: css('--gemini')}
   ]);
   window.__dashCharts.renderLines(root.querySelector('#chart-users'), data, [
-    {key: "tool_active",     label: "Active / week",        color: css('--accent')},
-    {key: "tool_cumulative", label: "Cumulative adopters",  color: css('--ink-muted'), dashed: true}
+    {key: "tool_active",     label: "Active / week",        color: css('--step-3')},
+    {key: "tool_cumulative", label: "Cumulative adopters",  color: css('--step-1'), dashed: true}
   ], {width: 560, height: 200});
 })();
 </script>
@@ -1021,7 +1028,7 @@ def render_provider(variant, dataset, nav_items):
       <p class="panel-title">Weekly {esc(label)} volume</p>
       <div class="panel-legend">
         <span><span class="legend-dot" style="background:var(--{variant})"></span>Generate</span>
-        <span><span class="legend-dot" style="background:var(--ink-muted)"></span>Refine</span>
+        <span><span class="legend-dot" style="background:var(--{variant}-tint)"></span>Refine</span>
       </div>
     </div>
     <div id="chart-volume"></div>
@@ -1033,7 +1040,7 @@ def render_provider(variant, dataset, nav_items):
         <p class="panel-title">Adopters per week</p>
         <div class="panel-legend">
           <span><span class="legend-dot" style="background:var(--{variant})"></span>Active / week</span>
-          <span><span class="legend-dot" style="background:var(--ink-muted)"></span>Cumulative adopters</span>
+          <span><span class="legend-dot" style="background:var(--{variant}-tint)"></span>Cumulative adopters</span>
         </div>
       </div>
       <div id="chart-users"></div>
@@ -1042,7 +1049,7 @@ def render_provider(variant, dataset, nav_items):
       <div class="panel-head"><p class="panel-title">Generate vs refine</p></div>
       <div class="share-bar">
         <div style="width:{gen_pct}%; background:var(--{variant})"></div>
-        <div style="width:{ref_pct}%; background:var(--ink-muted)"></div>
+        <div style="width:{ref_pct}%; background:var(--{variant}-tint)"></div>
       </div>
       <div class="share-legend">
         <span>Generate <span class="val mono">{m["generate"]:,}</span></span>
@@ -1079,11 +1086,11 @@ def render_provider(variant, dataset, nav_items):
   const css = k => getComputedStyle(root).getPropertyValue(k).trim();
   window.__dashCharts.renderStackedArea(root.querySelector('#chart-volume'), data, [
     {key: "tool___VARIANT___generate", label: "Generate", color: css('--__VARIANT__')},
-    {key: "tool___VARIANT___refine",   label: "Refine",   color: css('--ink-muted')}
+    {key: "tool___VARIANT___refine",   label: "Refine",   color: css('--__VARIANT__-tint')}
   ]);
   window.__dashCharts.renderLines(root.querySelector('#chart-users'), data, [
     {key: "tool___VARIANT___active",     label: "Active / week",       color: css('--__VARIANT__')},
-    {key: "tool___VARIANT___cumulative", label: "Cumulative adopters", color: css('--ink-muted'), dashed: true}
+    {key: "tool___VARIANT___cumulative", label: "Cumulative adopters", color: css('--__VARIANT__-tint'), dashed: true}
   ], {width: 560, height: 200});
 })();
 </script>

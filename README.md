@@ -194,11 +194,54 @@ PORT=8080                  # local dev only, never set this on Render
 `LAUNCH_DATE` is applied as a `gte` filter on every fetch. Setting it later than
 your first event silently drops history rather than erroring.
 
-## Chart palette
+## Brand palette
 
-The categorical hues, the funnel ramp and the status steps were validated with
-the data-viz palette checker in both light and dark mode (lightness band, chroma
-floor, CVD separation, normal-vision floor, contrast). Re-run the validator
-before changing any of them. Provider views encode generate against refine as
-the model's own hue against a neutral grey, so the two never compete with the
-categorical pair on the overall view.
+| Token | Value | Use |
+|---|---|---|
+| Dark Teal | `#002528` | Primary. `--ink` and `--accent` in light mode, the dark surface in dark mode |
+| Light Teal | `#b6edf3` | Accent. Rules, the active nav pill, `--accent` in dark mode |
+| Sand | `#e3d8cc` | Warm neutral. `--sand` for callout panels; the page plane is a lighter tint of it |
+| Figtree | sans | Body and UI, loaded from Google Fonts |
+| PP Editorial New | serif display | `.dash-title` and the landing `h1` |
+
+**PP Editorial New has no webfont here.** It is a licensed Pangram Pangram face,
+not on Google Fonts, so it leads the display stack and falls back to Georgia for
+anyone without it installed. To render it for everyone, self-host the licensed
+files and add an `@font-face`.
+
+### Chart colors are derived, not brand tokens
+
+None of the three brand colors can be a chart series color. Measured in OKLCH:
+
+```
+Dark Teal   #002528  L=0.241  C=0.041   lightness band FAIL, chroma FAIL
+Light Teal  #b6edf3  L=0.910  C=0.056   lightness band FAIL, chroma FAIL
+Sand        #e3d8cc  L=0.888  C=0.020   lightness band FAIL, chroma FAIL
+```
+
+Two are near-white and one is near-black, and all three sit under the 0.10 chroma
+floor where a hue stops carrying identity. So the categorical pair is **derived on
+the brand hue axes**: teal at H=203 (the hue both brand teals share) and a clay at
+H=45 (the warm family Sand belongs to), each stepped to a passing lightness.
+
+| Slot | Light | Dark |
+|---|---|---|
+| `--chatgpt` | `#00939f` | `#00a1ac` |
+| `--gemini` | `#c65d26` | `#cd632d` |
+| funnel ramp | `#6ac1c9 #34a4ad #008994 #00616a` | `#7ccdd5 #40b1ba #00939f #006d76` |
+
+Validated against the six checks in both modes: lightness band, chroma floor,
+CVD separation under Machado-Oliveira-Fernandes 2009 at severity 1.0, the
+normal-vision floor, and contrast. The categorical pair clears CVD at 16.6 light
+and 16.6 dark against a target of 8, and the normal-vision floor at 24.9 and 25.7
+against a floor of 15.
+
+Two-series charts that show **one** quantity (generate vs refine, active vs
+cumulative) use two steps of a single hue rather than a second categorical slot.
+They are a composition and an aggregation, not two identities, so they take the
+ordinal rule: monotone lightness, adjacent delta L >= 0.06, light end >= 2:1 on
+surface. Re-validate before changing any of these.
+
+Status colors (`--good` `--warning` `--critical`) are deliberately **not**
+brand-mapped. Red, amber and green carry meaning that overrides brand fit, and
+they always ship with an icon and a label rather than color alone.
