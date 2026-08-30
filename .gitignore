@@ -8,5 +8,10 @@ __pycache__/
 dashboard_data.json
 dashboard_*.html
 
+# Atomic writes leave a "<name>.<pid>.tmp" beside the target if the process
+# dies mid-write. Those carry the same designer data and the patterns above
+# do not match them, so ignore the suffix outright.
+*.tmp
+
 # Fabricated sample dashboards from an earlier iteration. Never deploy these.
 _archive/
