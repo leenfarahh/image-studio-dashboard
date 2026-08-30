@@ -1,0 +1,12 @@
+.env
+*.db
+__pycache__/
+*.pyc
+
+# Generated output. dashboard_data.json carries designer names, emails and
+# per-person activity - internal data, not for a repo.
+dashboard_data.json
+dashboard_*.html
+
+# Fabricated sample dashboards from an earlier iteration. Never deploy these.
+_archive/

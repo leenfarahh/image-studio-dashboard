@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: image-generator-dashboard
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    # 2 workers x 4 threads. Each worker keeps its own refresh cache and
+    # rebuilds independently; writes are atomic so they cannot collide.
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 60
+    healthCheckPath: /health
+    envVars:
+      # All secrets are set in the Render dashboard, never committed.
+      - key: TOOL_SUPABASE_URL
+        sync: false
+      - key: TOOL_SUPABASE_API_KEY
+        sync: false
+      - key: STANDALONE_SUPABASE_URL
+        sync: false
+      - key: STANDALONE_SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: REFRESH_TOKEN
+        generateValue: true
+      # Gates the dashboards. Without it the app refuses to serve, because
+      # these pages name individual designers and their work emails.
+      - key: DASHBOARD_PASSWORD
+        generateValue: true
+      - key: DASHBOARD_USER
+        value: prezlab
+      - key: LAUNCH_DATE
+        value: "2026-08-23"
+      - key: AUTO_REFRESH_SECONDS
+        value: "120"
+      - key: POLL_SECONDS
+        value: "30"
+      - key: PYTHON_VERSION
+        value: "3.12.10"
