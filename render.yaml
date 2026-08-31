@@ -29,5 +29,20 @@ services:
         value: "120"
       - key: POLL_SECONDS
         value: "30"
+      # Odoo HR supplies the adoption denominator and the designer roster.
+      # Without these four the app falls back to counting provisioned
+      # profiles, which both shrinks the denominator and lets pilot-team
+      # usage back into every figure. Set the secrets in the Render
+      # dashboard; verify with `python debug_odoo.py`.
+      - key: ODOO_URL
+        sync: false
+      - key: ODOO_DB
+        sync: false
+      - key: ODOO_USERNAME
+        sync: false
+      - key: ODOO_API_KEY
+        sync: false
+      - key: ODOO_DEPARTMENT
+        value: Creative
       - key: PYTHON_VERSION
         value: "3.12.10"
