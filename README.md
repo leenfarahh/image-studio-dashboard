@@ -16,6 +16,7 @@ such number would be self-reported or inferred. See [Why in-tool only](#why-in-t
 
 ```bash
 pip install -r requirements.txt
+cp .env.example .env      # then fill in the Supabase keys and a dashboard password
 python image_generation_dashboard_sync.py
 ```
 
@@ -270,7 +271,8 @@ floor, and the true delivered rate is at or below what is shown here.
 
 ## Configuration
 
-`.env` (gitignored):
+Copy `.env.example` to `.env` (gitignored) and fill it in. Every variable is
+documented there; the ones that matter:
 
 ```
 TOOL_SUPABASE_URL=...
