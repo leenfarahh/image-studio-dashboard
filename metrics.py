@@ -112,15 +112,38 @@ def build(raw, launch_date, today):
     eligible = [p for p in profiles if p["is_active"]]
     eligible_keys = {(p["email"] or p["id"]) for p in eligible}
 
-    # Prefer an explicit headcount supplied by the raw payload (e.g. from
-    # Odoo filtered by department). Fall back to the count of active
-    # provisioned profiles if Odoo is not available.
+    # Prefer HR headcount from Odoo: it counts designers, which is what the
+    # adoption percentage claims to measure. Provisioned profiles are the
+    # fallback, and a flattering one - someone never provisioned cannot show up
+    # as a non-adopter - so the source travels with the data and the page says
+    # which one it used.
     headcount = raw.get("headcount")
-    denominator = int(headcount) if (headcount is not None) else len(eligible_keys)
+    if headcount is not None:
+        denominator = int(headcount)
+        denominator_source = "odoo"
+    else:
+        denominator = len(eligible_keys)
+        denominator_source = "profiles"
+
+    # The roster is what keeps the ratio honest. The tool is provisioned well
+    # beyond the design department - the team that built it, Product, Ops -
+    # so counting every user against a department headcount would put people
+    # in the numerator who are not in the denominator.
+    #
+    # So: every PEOPLE figure below is scoped to the roster and means
+    # "designers", while VOLUME stays across all users and means "images this
+    # tool produced". Off-roster activity is not discarded, it is reported
+    # separately in meta; it is real usage, it just is not adoption.
+    roster = raw.get("headcount_emails")
+    roster = {e.strip().lower() for e in roster} if roster else None
+
+    def on_roster(person):
+        return roster is None or str(person or "").strip().lower() in roster
 
     for e in events:
         e["person"] = person_key(e, id_to_email)
         e["day"] = e["ts"].date()
+        e["on_roster"] = on_roster(e["person"])
 
     # Must run before anything counts an action: a retry writes a second
     # successful row, and without this every count below inflates.
@@ -153,10 +176,11 @@ def build(raw, launch_date, today):
             # something they never received.
             if e["delivered"]:
                 counts[(prov, op)] += 1
-                actives[prov].add(e["person"])
-                seen[prov].add(e["person"])
-                seen_any.add(e["person"])
-                day_active.add(e["person"])
+                if e["on_roster"]:
+                    actives[prov].add(e["person"])
+                    seen[prov].add(e["person"])
+                    seen_any.add(e["person"])
+                    day_active.add(e["person"])
 
         # Same key shape as the weekly rows built below. The daily and weekly
         # views share every chart and table, so they have to share a schema;
@@ -192,8 +216,9 @@ def build(raw, launch_date, today):
             continue
         key = _bucket_key(e["day"], "week")
         week_counts[key][e["provider"] + "_" + e["operation"]] += 1
-        week_people[key][e["provider"]].add(e["person"])
-        week_people[key]["any"].add(e["person"])
+        if e["on_roster"]:
+            week_people[key][e["provider"]].add(e["person"])
+            week_people[key]["any"].add(e["person"])
 
     for row in daily:
         key = _bucket_key(datetime.fromisoformat(row["date"]).date(), "week")
@@ -233,7 +258,8 @@ def build(raw, launch_date, today):
         weeks.append(w)
 
     return {
-        "meta": _build_meta(raw, launch_date, today, denominator, seen_any),
+        "meta": _build_meta(raw, launch_date, today, denominator, seen_any,
+                            denominator_source),
         "daily": daily,
         "weeks": weeks,
         "denominator": denominator,
@@ -242,19 +268,37 @@ def build(raw, launch_date, today):
         "quality": _quality(images),
         "savers": _savers(images, id_to_email),
         "retention": _retention(events, denominator),
-        "designers": _designers(events, display_names, eligible_keys),
+        "designers": _designers(events, display_names, eligible_keys, roster),
         "mix": _mix(events, images, denominator),
     }
 
 
-def _build_meta(raw, launch_date, today, denominator, adopters):
+def _build_meta(raw, launch_date, today, denominator, adopters, denominator_source):
+    # Everyone who used the tool but sits outside the counted department: the
+    # team that built it, Product, Ops. Reported rather than dropped, because
+    # a reader comparing volume against adopters will otherwise find images
+    # that nobody appears to have generated.
+    off_roster = {e["person"] for e in raw["tool_events"]
+                  if e.get("delivered") and not e.get("on_roster", True)}
+    off_roster_events = sum(1 for e in raw["tool_events"]
+                            if e.get("delivered") and not e.get("on_roster", True))
+
     return {
         "launch_date": launch_date.isoformat(),
         "generated_through": today.isoformat(),
         "eligible_designers": denominator,
+        "denominator_source": denominator_source,
+        "denominator_department": (
+            config.ODOO_DEPARTMENT if denominator_source == "odoo" else None
+        ),
+        # Populated only when Odoo was configured and the lookup failed, so a
+        # broken credential reads differently from a deliberate opt-out.
+        "denominator_error": raw.get("headcount_error"),
         "tool_adopters": len(adopters),
         "tool_adoption_pct": _pct(len(adopters), denominator),
         "tool_event_count": len(raw["tool_events"]),
+        "off_roster_users": len(off_roster),
+        "off_roster_generations": off_roster_events,
     }
 
 
@@ -363,7 +407,9 @@ def _retention(events, denominator):
     for period in config.PERIODS:
         buckets_by_person = defaultdict(set)
         for e in events:
-            if e["delivered"]:
+            # Roster-scoped, so "never tried" is the remainder of a population
+            # these adopters actually belong to.
+            if e["delivered"] and e["on_roster"]:
                 buckets_by_person[e["person"]].add(_bucket_key(e["day"], period))
 
         adopters = len(buckets_by_person)
@@ -396,7 +442,9 @@ def _mix(events, images, denominator):
     out = {}
     for prov in config.PROVIDERS:
         rows = [e for e in ok if e["provider"] == prov]
-        people = {e["person"] for e in rows}
+        # Volume counts every user; the people figure counts designers, so the
+        # percentage below divides into a population its numerator sits in.
+        people = {e["person"] for e in rows if e["on_roster"]}
         gen = sum(1 for e in rows if e["operation"] == "generate")
         ref = sum(1 for e in rows if e["operation"] == "refine")
         saved = sum(1 for i in images
@@ -424,7 +472,7 @@ def _mix(events, images, denominator):
     return out
 
 
-def _designers(events, display_names, eligible_keys):
+def _designers(events, display_names, eligible_keys, roster=None):
     """Per-person table. Includes provisioned designers with zero activity:
     on a rollout, the people who have not started are the actionable list.
 
@@ -481,6 +529,12 @@ def _designers(events, display_names, eligible_keys):
             "failed": s["failed"],
             "superseded": s["superseded"],
             "provisioned": key in eligible_keys,
+            # Whether this person is in the department the adoption
+            # percentage is measured against. False means real usage that is
+            # deliberately not counted as adoption - the build team, Product,
+            # Ops - and a table that did not say so would look like a
+            # miscount against the headline number.
+            "on_roster": roster is None or str(key or "").strip().lower() in roster,
         }
         for scope in scopes:
             seen = s["last_seen"][scope]

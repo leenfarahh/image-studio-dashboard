@@ -1,4 +1,5 @@
 """Fetch layer: pulls raw rows from the tool's Supabase project."""
+import xmlrpc.client
 from datetime import datetime
 
 import requests
@@ -131,51 +132,169 @@ def fetch_profiles():
     } for r in rows]
 
 
-def fetch_headcount_from_odoo():
-    """Query Odoo for the headcount of the configured department.
+class OdooError(RuntimeError):
+    """Odoo was configured but the headcount lookup failed.
 
-    Tries a best-effort REST call. The exact Odoo API shape may vary between
-    deployments; this supports common patterns:
-      - If the endpoint returns a list of employee objects, the length is used.
-      - If the endpoint returns an object with a 'count' or 'total' field, that
-        value is used.
-
-    Returns an int (>=0) on success or None if no Odoo config is present or the
-    call/response could not be understood.
+    Distinct from "not configured" (which returns None) so a broken credential
+    is never mistaken for a deliberate opt-out.
     """
-    if not config.ODOO_API_URL or not config.ODOO_API_KEY:
+
+
+def _odoo_models():
+    """Authenticate over XML-RPC and return (uid, models_proxy).
+
+    Every failure mode here raises OdooError with the step that failed, since
+    "wrong database" and "wrong API key" are otherwise indistinguishable.
+    """
+    common = xmlrpc.client.ServerProxy(
+        f"{config.ODOO_URL}/xmlrpc/2/common", allow_none=True
+    )
+    try:
+        common.version()
+    except Exception as exc:
+        raise OdooError(f"cannot reach {config.ODOO_URL}/xmlrpc/2/common: {exc}") from exc
+
+    try:
+        uid = common.authenticate(
+            config.ODOO_DB, config.ODOO_USERNAME, config.ODOO_API_KEY, {}
+        )
+    except xmlrpc.client.Fault as exc:
+        # A wrong database name comes back as a Fault, not a falsy uid.
+        raise OdooError(f"authenticate failed (check ODOO_DB): {exc.faultString}") from exc
+
+    if not uid:
+        raise OdooError(
+            f"authenticate returned no uid for {config.ODOO_USERNAME} on "
+            f"database {config.ODOO_DB!r} - check the login and API key"
+        )
+
+    models = xmlrpc.client.ServerProxy(
+        f"{config.ODOO_URL}/xmlrpc/2/object", allow_none=True
+    )
+    return uid, models
+
+
+def _execute(models, uid, model, method, *args, **kwargs):
+    try:
+        return models.execute_kw(
+            config.ODOO_DB, uid, config.ODOO_API_KEY, model, method, list(args), kwargs
+        )
+    except xmlrpc.client.Fault as exc:
+        raise OdooError(f"{model}.{method} failed: {exc.faultString.strip()}") from exc
+
+
+def _department_ids(models, uid):
+    """Resolve the configured department name to ids, sub-departments included.
+
+    Matched case-insensitively on the exact name: an `ilike` substring match
+    would fold "Creative Ops" into "Creative" and quietly inflate headcount.
+    """
+    ids = _execute(
+        models, uid, "hr.department", "search",
+        [("name", "=ilike", config.ODOO_DEPARTMENT)],
+    )
+    if not ids:
+        known = _execute(models, uid, "hr.department", "search_read", [],
+                         fields=["name"], limit=50)
+        names = ", ".join(sorted(d["name"] for d in known)) or "none visible"
+        raise OdooError(
+            f"no department named {config.ODOO_DEPARTMENT!r}. Departments: {names}"
+        )
+    if not config.ODOO_INCLUDE_SUB_DEPARTMENTS:
+        return ids
+    return _execute(
+        models, uid, "hr.department", "search", [("id", "child_of", ids)]
+    )
+
+
+def fetch_department_roster():
+    """Who is in the configured department, from Odoo HR.
+
+    Returns {"count": int, "emails": [work emails]}, or None when Odoo is not
+    configured at all. Raises OdooError when it is configured and the lookup
+    fails - a silent None there would swap in the provisioned-profile count and
+    overstate adoption without saying so.
+
+    The emails matter as much as the count. A headcount alone gives a
+    denominator but no way to tell whether the people in the numerator belong
+    to it, and the tool is provisioned well outside this department.
+
+    Archived employees are excluded: Odoo applies its own active filter unless
+    told otherwise, which is what we want here - leavers are not designers who
+    failed to adopt.
+    """
+    if config.odoo_rest_configured():
+        return {"count": _fetch_headcount_rest(), "emails": []}
+    if not config.odoo_configured():
         return None
 
-    url = config.ODOO_API_URL.rstrip('/') + '/employees'
+    uid, models = _odoo_models()
+    dept_ids = _department_ids(models, uid)
+    domain = [("department_id", "in", dept_ids)]
+
+    for model in ("hr.employee", "hr.employee.public"):
+        try:
+            rows = _execute(models, uid, model, "search_read", domain,
+                            fields=["work_email"], limit=2000)
+        except OdooError:
+            # An API user without HR rights cannot read hr.employee. The public
+            # model carries the same rows with fewer fields and is enough here.
+            if model == "hr.employee.public":
+                raise
+            continue
+        emails = sorted({
+            (r.get("work_email") or "").strip().lower()
+            for r in rows if r.get("work_email")
+        })
+        return {"count": len(rows), "emails": emails}
+
+
+def _fetch_headcount_rest():
+    """Deployments with a REST layer bolted on top of Odoo.
+
+    Kept because it was the original implementation; stock Odoo does not serve
+    this and ODOO_API_URL should be left unset there.
+    """
+    url = config.ODOO_API_URL.rstrip("/") + "/employees"
     headers = {"Authorization": f"Bearer {config.ODOO_API_KEY}"}
     params = {"department": config.ODOO_DEPARTMENT}
 
     try:
         resp = requests.get(url, headers=headers, params=params, timeout=15)
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
-        # List response -> count length
-        if isinstance(data, list):
-            return len(data)
-        if isinstance(data, dict):
-            for key in ("count", "total", "size", "employees_count"):
-                if key in data and isinstance(data[key], int):
-                    return data[key]
-            # Maybe employees under a key
-            for key in ("employees", "results", "data"):
-                if key in data and isinstance(data[key], list):
-                    return len(data[key])
-        # Unknown shape
-        return None
-    except Exception:
-        return None
+    except requests.RequestException as exc:
+        raise OdooError(f"cannot reach {url}: {exc}") from exc
+    if resp.status_code != 200:
+        raise OdooError(f"{url} returned {resp.status_code}: {resp.text[:200]}")
+
+    data = resp.json()
+    if isinstance(data, list):
+        return len(data)
+    if isinstance(data, dict):
+        for key in ("count", "total", "size", "employees_count"):
+            if isinstance(data.get(key), int):
+                return data[key]
+        for key in ("employees", "results", "data"):
+            if isinstance(data.get(key), list):
+                return len(data[key])
+    raise OdooError(f"unrecognised response shape from {url}: {str(data)[:200]}")
 
 
 def load_all(since):
+    # A failed headcount lookup must not take the dashboard down with it: the
+    # rest of the data is still worth showing. The error travels with the
+    # payload so the page can say the denominator fell back rather than
+    # printing a flattering number with no explanation.
+    roster, headcount_error = None, None
+    try:
+        roster = fetch_department_roster()
+    except OdooError as exc:
+        headcount_error = str(exc)
+
     return {
         "tool_events": fetch_tool_events(since),
         "images": fetch_images(since),
         "profiles": fetch_profiles(),
-        "headcount": fetch_headcount_from_odoo(),
+        "headcount": roster["count"] if roster else None,
+        "headcount_emails": roster["emails"] if roster else None,
+        "headcount_error": headcount_error,
     }

@@ -24,11 +24,40 @@ EVENTS_TABLE = "generation_events"
 IMAGES_TABLE = "images"
 PROFILES_TABLE = "profiles"
 
-# Odoo (HR) API settings. If provided, the dashboard will use the headcount
-# from Odoo filtered by department to compute the adoption denominator.
-ODOO_API_URL = os.environ.get("ODOO_API_URL", "")  # e.g. https://odoo.example.com/api
-ODOO_API_KEY = os.environ.get("ODOO_API_KEY", "")  # Bearer/token for Odoo API
-ODOO_DEPARTMENT = os.environ.get("ODOO_DEPARTMENT", "Creatives")
+# ------------------------------------------------------------------
+# Odoo (HR) - the adoption denominator
+# ------------------------------------------------------------------
+# Without this the denominator is "people provisioned on the tool", which
+# flatters the number: anyone never provisioned cannot count as a non-adopter.
+# Odoo answers the question the dashboard actually asks - how many designers
+# are there - so headcount from HR is preferred and profiles are the fallback.
+#
+# Stock Odoo has no REST API. The external API is XML-RPC, authenticating with
+# database + login + API key (Settings > My Profile > Account Security > New
+# API Key). All four values are required for the lookup to run.
+ODOO_URL = os.environ.get("ODOO_URL", "").rstrip("/")  # e.g. https://prezlab.odoo.com
+ODOO_DB = os.environ.get("ODOO_DB", "")                # database name
+ODOO_USERNAME = os.environ.get("ODOO_USERNAME", "")    # login email of the API user
+ODOO_API_KEY = os.environ.get("ODOO_API_KEY", "")      # API key, used as the password
+ODOO_DEPARTMENT = os.environ.get("ODOO_DEPARTMENT", "Creative")
+
+# Sub-departments count toward the parent by default: "Creative" should include
+# "Creative / Presentation Design" rather than only people filed at the top
+# level. Set ODOO_INCLUDE_SUB_DEPARTMENTS=0 for an exact-department count.
+ODOO_INCLUDE_SUB_DEPARTMENTS = os.environ.get("ODOO_INCLUDE_SUB_DEPARTMENTS", "1") != "0"
+
+# Escape hatch for a deployment that has a REST layer installed on top of Odoo
+# (OCA base_rest or similar). When set, this is tried instead of XML-RPC.
+ODOO_API_URL = os.environ.get("ODOO_API_URL", "")
+
+
+def odoo_configured():
+    """True when every value the XML-RPC lookup needs is present."""
+    return bool(ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY)
+
+
+def odoo_rest_configured():
+    return bool(ODOO_API_URL and ODOO_API_KEY)
 
 REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN", "")
 
