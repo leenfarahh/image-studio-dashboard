@@ -83,7 +83,7 @@ def fetch_images(since):
         config.TOOL_SUPABASE_API_KEY,
         config.IMAGES_TABLE,
         {
-            "select": "id,user_id,provider,model,operation,parent_image_id,saved,created_at",
+            "select": "id,user_id,provider,model,operation,parent_image_id,prompt,saved,created_at",
             "created_at": f"gte.{since.isoformat()}",
             "order": "created_at.asc",
         },
@@ -97,6 +97,10 @@ def fetch_images(since):
             "id": r.get("id"),
             "user_id": r.get("user_id"),
             "provider": config.normalize_provider(r.get("provider")),
+            "operation": config.normalize_operation(r.get("operation")),
+            # The prompt is the only field that can tie a retry to the attempt
+            # it replaced, so retry detection depends on selecting it.
+            "prompt": (r.get("prompt") or "").strip(),
             "parent_image_id": r.get("parent_image_id"),
             "saved": bool(r.get("saved")),
             "ts": ts,

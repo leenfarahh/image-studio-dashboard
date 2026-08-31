@@ -22,6 +22,7 @@ def data_hash(dataset):
         {
             "meta": dataset["meta"],
             "weeks": dataset["weeks"],
+            "daily": dataset["daily"],
             "designers": dataset["designers"],
             "retention": dataset["retention"],
             "reliability": dataset["reliability"],
@@ -75,6 +76,7 @@ def write_dashboards(dataset, out_dir=None, suffix=""):
         "quality": dataset["quality"],
         "mix": dataset["mix"],
         "weeks": dataset["weeks"],
+        "daily": dataset["daily"],
         "designers": dataset["designers"],
         "last_generated": dataset.get("generated_at") or datetime.now(timezone.utc).isoformat(),
         "data_hash": dataset.get("data_hash"),
@@ -105,8 +107,18 @@ def main():
         print(f"  {config.PROVIDER_LABELS[prov]:<8} "
               f"{m['actions']:>4} actions  {m['users']} users  "
               f"{m['share_pct']}% of volume")
-    print(f"Returning users:   {dataset['retention']['repeat_pct']}%")
-    print(f"Success rate:      {dataset['reliability']['all']['success_pct']}%")
+    ret = dataset["retention"]
+    print(f"Returning (2+ wk): {ret['week']['repeat_pct']}% "
+          f"({ret['week']['repeat_users']}/{ret['week']['adopters']})")
+    print(f"Returning (2+ dy): {ret['day']['repeat_pct']}% "
+          f"({ret['day']['repeat_users']}/{ret['day']['adopters']})")
+    rel = dataset["reliability"]["all"]
+    print(f"Delivered:         {rel['delivered_pct']}% "
+          f"({rel['delivered']}/{rel['attempts']} attempts)")
+    print(f"  retried away:    {rel['superseded']}")
+    print(f"  logged failures: {rel['failed']}"
+          + ("   <- the tool never writes a failed row; this is a floor"
+             if rel["no_failure_feed"] else ""))
     print(f"Save rate:         {dataset['quality']['all']['save_pct']}%")
 
     for path in write_dashboards(dataset):

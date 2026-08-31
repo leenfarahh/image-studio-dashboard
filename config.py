@@ -93,6 +93,41 @@ OPERATION_ALIASES = {
 
 PROVIDER_LABELS = {"chatgpt": "ChatGPT", "gemini": "Gemini"}
 
+# ------------------------------------------------------------------
+# Reporting period
+# ------------------------------------------------------------------
+# Every people-based metric buckets activity into periods, and "returning"
+# means active in 2+ of them. Which period is the honest one depends on how
+# young the rollout is: in week one nobody can have a second week yet, so a
+# weekly-only read prints 0% returning even while designers are coming back
+# day after day. Both granularities are computed and the reader picks.
+PERIODS = ["week", "day"]
+DEFAULT_PERIOD = "week"
+PERIOD_LABELS = {"week": "Weekly", "day": "Daily"}
+PERIOD_NOUN = {"week": "week", "day": "day"}
+PERIOD_NOUN_PLURAL = {"week": "weeks", "day": "days"}
+
+# ------------------------------------------------------------------
+# Retry detection
+# ------------------------------------------------------------------
+# The MCP client gives up on a slow generation and calls the tool again. The
+# server has usually finished by then, so it writes an event row and stores an
+# image that never reached the designer. Left alone, those land in the data as
+# extra successful generations: three rows and three library images for one
+# picture the designer actually received.
+#
+# An attempt is treated as superseded when the same person re-renders an
+# identical prompt on the same model within RETRY_WINDOW_SECONDS *and* that
+# attempt ran at or past CLIENT_TIMEOUT_MS. Both conditions are required. A
+# designer re-running a prompt they did not like is a real second generation,
+# and the timeout is the only thing separating that from a client retry.
+#
+# The defaults were set against observed data, where every superseded attempt
+# ran 81s or longer and every delivered one finished inside 55s. Raise
+# CLIENT_TIMEOUT_MS if the tool's own timeout is raised.
+RETRY_WINDOW_SECONDS = int(os.environ.get("RETRY_WINDOW_SECONDS", "300"))
+CLIENT_TIMEOUT_MS = int(os.environ.get("CLIENT_TIMEOUT_MS", "75000"))
+
 # One dashboard, three views: both models together, then each on its own.
 # No absolute URLs, so _nav falls back to the served path and NAV_JS rewrites
 # it for a page opened straight off disk.

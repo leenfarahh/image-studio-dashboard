@@ -17,6 +17,7 @@ from datetime import date
 
 from flask import Flask, abort, jsonify, make_response, request, send_from_directory
 
+import assets
 import config
 import image_generation_dashboard_sync as sync
 
@@ -120,6 +121,7 @@ def index():
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Image Generator Adoption</title>
+{assets.FAVICON_LINK}
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
 <style>
   :root {{ color-scheme: light; --plane:#f5efe8; --tile:#fffefd; --ink:#002528;
@@ -274,6 +276,22 @@ def serve_dashboard_json():
                         "detail": _state["last_error"]}), 503
     resp = make_response(send_from_directory(config.BASE_DIR, "dashboard_data.json"))
     resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    return resp
+
+
+@app.get("/favicon.ico")
+def favicon():
+    """Served unauthenticated, like /health.
+
+    Pages carry the mark inline so nothing normally requests this, but a
+    browser will ask for it unprompted on a bare URL, and a company logo is
+    not the staff data the viewer gate exists to protect.
+    """
+    if not os.path.exists(assets.LOGO_PATH):
+        return "", 404
+    resp = make_response(send_from_directory(config.BASE_DIR, assets.LOGO_FILE))
+    resp.headers["Content-Type"] = assets.LOGO_MIME
+    resp.headers["Cache-Control"] = "public, max-age=86400"
     return resp
 
 

@@ -8,6 +8,7 @@ re-step these by eye.
 import json
 from datetime import datetime
 
+import assets
 import config
 
 # ============================================================
@@ -15,6 +16,7 @@ import config
 # ============================================================
 CSS = """
 <title>__TITLE__</title>
+__FAVICON__
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap">
 <style>
   .dash {
@@ -134,6 +136,30 @@ CSS = """
   .dash-nav .current { background: var(--accent-tint); color: var(--accent); border-color: transparent; }
   .dash-nav a:hover { border-color: var(--accent); color: var(--accent); }
 
+  /* Reporting-period switch. Both granularities are rendered into the page,
+     so this only flips which one is visible: no request, no re-render. */
+  .dash-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+  .period-control { display: flex; align-items: center; gap: 9px; }
+  .period-label {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--ink-muted); white-space: nowrap;
+  }
+  .period-switch {
+    display: inline-flex; gap: 2px; padding: 3px; background: var(--plane);
+    border: 1px solid var(--border); border-radius: 999px;
+  }
+  .period-switch button {
+    font: 600 12.5px/1 "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--ink-2); background: transparent; border: 0; cursor: pointer;
+    padding: 7px 15px; border-radius: 999px;
+  }
+  .period-switch button:hover { color: var(--accent); }
+  .period-switch button[aria-checked="true"] { background: var(--accent-tint); color: var(--accent); }
+  @media (max-width: 640px) { .dash-controls { align-items: flex-start; } }
+
+  /* A hidden period block must collapse out of the grid, not just go blank. */
+  .dash [hidden] { display: none !important; }
+
   .kpi-row {
     max-width: 1180px; margin: 0 auto 20px; display: grid;
     grid-template-columns: repeat(4, 1fr); gap: 12px;
@@ -248,8 +274,8 @@ CSS = """
     display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
   }
 
-  /* Refresh controls. Hidden by default and revealed only when the page is
-     being served by app.py, since a published artifact has no server to ask. */
+  /* Data-age readout. Hidden by default and revealed only when the page is
+     being served by app.py, since a file off disk has no server to ask. */
   .refresh-bar {
     max-width: 1180px; margin: 0 auto 16px; display: flex; align-items: center;
     justify-content: space-between; gap: 12px; flex-wrap: wrap;
@@ -266,13 +292,7 @@ CSS = """
     box-shadow: 0 0 0 3px color-mix(in oklch, var(--warning) 22%, transparent); }
   .refresh-bar.is-error .dot { background: var(--critical);
     box-shadow: 0 0 0 3px color-mix(in oklch, var(--critical) 20%, transparent); }
-  .refresh-btn {
-    font: 600 12.5px/1 "Figtree", system-ui, sans-serif;
-    color: var(--accent); background: transparent; cursor: pointer;
-    border: 1px solid var(--border); border-radius: 999px; padding: 7px 14px;
-  }
-  .refresh-btn:hover:not(:disabled) { border-color: var(--accent); }
-  .refresh-btn:disabled { opacity: .55; cursor: default; }
+  .refresh-note { font-size: 12px; color: var(--ink-muted); }
 
   svg.chart-svg { display: block; width: 100%; height: auto; }
   svg.chart-svg .grid-line { stroke: var(--grid); stroke-width: 1; }
@@ -478,11 +498,45 @@ def esc(value):
             .replace(">", "&gt;").replace('"', "&quot;"))
 
 
-def kpi(label, value, note, unit="", headline=False):
+def _period_attrs(period):
+    """Tag a fragment as belonging to one reporting period.
+
+    Both periods are rendered into the page and the switch only flips which is
+    visible. Duplicating the markup costs a few KB; re-rendering it in the
+    browser would mean keeping a second copy of every template in JavaScript.
+    """
+    hidden = "" if period == config.DEFAULT_PERIOD else " hidden"
+    return f' data-period="{period}"{hidden}'
+
+
+def period_span(by_period):
+    """Inline text that follows the toggle. Values are plain text."""
+    return "".join(
+        f"<span{_period_attrs(p)}>{esc(by_period[p])}</span>" for p in config.PERIODS
+    )
+
+
+def period_div(by_period, cls=""):
+    """Block content that follows the toggle. Values are raw HTML."""
+    cls_attr = f' class="{cls}"' if cls else ""
+    return "".join(
+        f"<div{cls_attr}{_period_attrs(p)}>{by_period[p]}</div>" for p in config.PERIODS
+    )
+
+
+def chart_slots(prefix):
+    """One empty chart container per period, for the page script to fill."""
+    return "".join(
+        f'<div id="{prefix}-{p}"{_period_attrs(p)}></div>' for p in config.PERIODS
+    )
+
+
+def kpi(label, value, note, unit="", headline=False, period=None):
     cls = "kpi-tile is-headline" if headline else "kpi-tile"
     unit_html = f'<span class="unit">{esc(unit)}</span>' if unit else ""
+    attrs = _period_attrs(period) if period else ""
     return (
-        f'<div class="{cls}">'
+        f'<div class="{cls}"{attrs}>'
         f'<p class="kpi-label">{esc(label)}</p>'
         f'<p class="kpi-value mono">{esc(value)}{unit_html}</p>'
         f'<p class="kpi-note">{note}</p></div>'
@@ -536,21 +590,50 @@ def table(headers, rows, row_classes=None):
     )
 
 
+def delivery_lines(r):
+    """The two flags, reported side by side, plus what is not being measured.
+
+    Superseded and logged-failure are kept on separate rows on purpose. One is
+    counted from rows that exist; the other is only as good as the tool's
+    failure path, which currently writes nothing.
+    """
+    rows = [
+        ("Attempts", f'{r["attempts"]:,}', "every call the tool logged"),
+        ("Delivered", f'{r["delivered"]:,}', f'{r["delivered_pct"]}%'),
+        ("Retried, never delivered", r["superseded"], f'{r["superseded_pct"]}%'),
+        ("Failures logged by the tool", r["failed"], f'{r["failed_pct"]}%'),
+    ]
+    out = stat_lines(rows)
+    if r["no_failure_feed"] and r["attempts"]:
+        out += (
+            '<p class="panel-hint" style="margin-top:10px">The tool writes a row '
+            'only after a generation succeeds, so a hard API error leaves no '
+            'trace and that zero is a <b>missing feed, not a clean record</b>. '
+            'Retried attempts are counted from rows that do exist, which is why '
+            'they can be reported.</p>'
+        )
+    return out
+
+
 def health_pill(pct, attempts=None, good_at=95.0, warn_at=85.0):
     # Zero attempts is not a health verdict, so it gets a neutral pill rather
     # than a green one computed from an empty sample.
     if attempts == 0:
         return '<span class="pill mute">No attempts yet</span>'
     if pct >= good_at:
-        return f'<span class="pill good">&#10003; {pct}% healthy</span>'
+        return f'<span class="pill good">&#10003; Healthy &middot; {pct}% delivered</span>'
     if pct >= warn_at:
-        return f'<span class="pill warn">&#9888; {pct}% degraded</span>'
-    return f'<span class="pill bad">&#10007; {pct}% failing</span>'
+        return f'<span class="pill warn">&#9888; Degraded &middot; {pct}% delivered</span>'
+    return f'<span class="pill bad">&#10007; Failing &middot; {pct}% delivered</span>'
 
 
 # ============================================================
 # Dashboard templates
 # ============================================================
+# Which dataset key each period reads. The two series carry the same row
+# schema, so every chart and table below is granularity-agnostic.
+SERIES_KEY = {"week": "weeks", "day": "daily"}
+
 TITLES = {
     "overall": (
         "Adoption",
@@ -598,6 +681,72 @@ def _nav(nav_items, variant):
     return out
 
 
+def _period_switch():
+    """Segmented control. Radio semantics, because this picks one of a set of
+    views rather than navigating anywhere."""
+    out = ""
+    for period in config.PERIODS:
+        checked = "true" if period == config.DEFAULT_PERIOD else "false"
+        out += (
+            f'<button type="button" role="radio" data-set-period="{period}" '
+            f'aria-checked="{checked}">{esc(config.PERIOD_LABELS[period])}</button>'
+        )
+    return (
+        '<div class="period-control">'
+        '<span class="period-label">Measured by</span>'
+        '<div class="period-switch" role="radiogroup" aria-label="Reporting period">'
+        f"{out}</div></div>"
+    )
+
+
+# Runs before the charts so a reader who last chose Daily does not watch the
+# weekly view paint first. The chart containers are in the served markup either
+# way, so building into a hidden one is fine.
+PERIOD_JS = """
+<script>
+(function(){
+  var root = document.querySelector('.dash[data-variant]');
+  if (!root) return;
+  var buttons = root.querySelectorAll('.period-switch button[data-set-period]');
+  if (!buttons.length) return;
+  var KEY = 'imagegen-dash-period';
+
+  function apply(period) {
+    // Everything downstream of the switch carries data-period. The buttons
+    // use data-set-period instead, so they never hide themselves.
+    var blocks = root.querySelectorAll('[data-period]');
+    for (var i = 0; i < blocks.length; i++) {
+      blocks[i].hidden = blocks[i].getAttribute('data-period') !== period;
+    }
+    for (var j = 0; j < buttons.length; j++) {
+      buttons[j].setAttribute('aria-checked',
+        buttons[j].getAttribute('data-set-period') === period ? 'true' : 'false');
+    }
+    root.setAttribute('data-period-active', period);
+  }
+
+  // The page reloads itself whenever the figures change. Without remembering
+  // the choice, that reload would snap anyone reading in daily back to weekly.
+  // A private window or blocked site data throws here rather than returning
+  // null, so both directions are guarded.
+  var initial = root.getAttribute('data-default-period') || 'week';
+  try {
+    var saved = window.localStorage.getItem(KEY);
+    if (saved === 'week' || saved === 'day') initial = saved;
+  } catch (e) {}
+  apply(initial);
+
+  for (var k = 0; k < buttons.length; k++) {
+    buttons[k].addEventListener('click', function(ev){
+      var p = ev.currentTarget.getAttribute('data-set-period');
+      apply(p);
+      try { window.localStorage.setItem(KEY, p); } catch (e) {}
+    });
+  }
+})();
+</script>
+"""
+
 NAV_JS = """
 <script>
 (function(){
@@ -616,9 +765,14 @@ NAV_JS = """
 </script>
 """
 
-# Auto-refresh. Only activates when app.py is serving the page: a published
-# artifact is a static snapshot with no server to ask, so the bar stays hidden
-# rather than offering a button that cannot work.
+# Auto-refresh. Only activates when app.py is serving the page: a file opened
+# off disk is a static snapshot with no server to ask, so the bar stays hidden
+# rather than reporting an age it cannot keep current.
+#
+# There is no manual control. The page polls, and the server re-reads Supabase
+# whenever its cache has aged out, so the only thing a button added was reading
+# through that cache a couple of minutes early. `?refresh=1` still forces a
+# read for anyone who needs one from the URL.
 REFRESH_JS = """
 <script>
 (function(){
@@ -628,9 +782,8 @@ REFRESH_JS = """
   if (!served) return;
 
   var bar = root.querySelector('.refresh-bar');
-  var btn = root.querySelector('.refresh-btn');
   var age = root.querySelector('.refresh-age');
-  if (!bar || !btn || !age) return;
+  if (!bar || !age) return;
   bar.hidden = false;
 
   var pageHash = root.getAttribute('data-hash') || '';
@@ -655,11 +808,10 @@ REFRESH_JS = """
     bar.classList.toggle('is-stale', (Date.now() - generated) > 15 * 60 * 1000);
   }
 
-  function check(force) {
+  function check() {
     if (busy) return;
     busy = true;
-    if (force) { btn.disabled = true; btn.textContent = 'Refreshing...'; age.textContent = 'Reading database...'; }
-    fetch('/api/status' + (force ? '?refresh=1' : ''), {cache: 'no-store'})
+    fetch('/api/status', {cache: 'no-store'})
       .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
       .then(function(s){
         bar.classList.remove('is-error');
@@ -668,26 +820,20 @@ REFRESH_JS = """
         if (s.data_hash && s.data_hash !== pageHash) { window.location.reload(); return; }
         if (s.generated_at) generated = Date.parse(s.generated_at) || generated;
         busy = false;
-        btn.disabled = false;
-        btn.textContent = 'Refresh now';
         paint();
-        if (force) { age.textContent = 'No change. ' + describeAge().toLowerCase(); }
       })
       .catch(function(){
         bar.classList.add('is-error');
         busy = false;
-        btn.disabled = false;
-        btn.textContent = 'Refresh now';
         age.textContent = 'Could not reach the server';
       });
   }
 
-  btn.addEventListener('click', function(){ check(true); });
   paint();
   setInterval(paint, 15000);
-  setInterval(function(){ check(false); }, pollMs);
+  setInterval(check, pollMs);
   document.addEventListener('visibilitychange', function(){
-    if (!document.hidden) check(false);
+    if (!document.hidden) check();
   });
 })();
 </script>
@@ -702,17 +848,22 @@ def _shell(variant, dataset, nav_items, kpis_html, body_html, script_html):
     window = f"{meta['launch_date']} to {meta['generated_through']}"
     generated_at = dataset.get("generated_at", "")
     dhash = dataset.get("data_hash", "")
-    return f"""{CSS.replace("__TITLE__", page_title)}
+    head = CSS.replace("__TITLE__", page_title).replace("__FAVICON__", assets.FAVICON_LINK)
+    return f"""{head}
 <div class="dash" data-variant="{variant}"
      data-hash="{esc(dhash)}" data-generated="{esc(generated_at)}"
-     data-poll="{config.POLL_SECONDS}">
+     data-poll="{config.POLL_SECONDS}"
+     data-default-period="{config.DEFAULT_PERIOD}">
   <div class="dash-header">
     <div>
       <p class="dash-eyebrow">{esc(eyebrow)}</p>
       <h1 class="dash-title">{esc(title)}</h1>
       <p class="dash-sub">{esc(sub)}</p>
     </div>
-    <div class="dash-nav">{_nav(nav_items, variant)}</div>
+    <div class="dash-controls">
+      <div class="dash-nav">{_nav(nav_items, variant)}</div>
+      {_period_switch()}
+    </div>
   </div>
 
   <div class="refresh-bar" hidden>
@@ -720,7 +871,7 @@ def _shell(variant, dataset, nav_items, kpis_html, body_html, script_html):
       <span class="dot"></span>
       <span class="refresh-age">Updated just now</span>
     </span>
-    <button type="button" class="refresh-btn">Refresh now</button>
+    <span class="refresh-note">Updates itself automatically</span>
   </div>
 
   <div class="kpi-row">{kpis_html}</div>
@@ -734,26 +885,35 @@ def _shell(variant, dataset, nav_items, kpis_html, body_html, script_html):
 </div>
 
 {NAV_JS}
+{PERIOD_JS}
 {REFRESH_JS}
 {CHART_JS}
 {script_html}
 """
 
 
-def _designer_table(dataset, scope):
-    """scope: 'all' | 'chatgpt' | 'gemini'."""
+def _designer_table(dataset, scope, period):
+    """scope: 'all' | 'chatgpt' | 'gemini'. period: 'week' | 'day'.
+
+    Status is the toggle's whole point at the person level. "Returning" means
+    active in 2+ distinct periods, so someone who generated on Monday and
+    again on Tuesday reads as Returning on the daily view and Tried once on
+    the weekly one. Both are accurate; they answer different questions, and
+    early in a rollout only the daily one can answer anything at all.
+    """
+    plural = config.PERIOD_NOUN_PLURAL[period]
     rows, classes = [], []
     for d in dataset["designers"]:
         n = d["tool_total"] if scope == "all" else d["tool_" + scope]
         if n == 0 and not d["provisioned"]:
             continue
-        # Weeks and last-used must match the column scope, otherwise a
-        # Gemini-only designer reads as "not started" beside a ChatGPT date.
-        weeks = d["active_weeks_" + scope]
+        # Active periods and last-used must match the column scope, otherwise
+        # a Gemini-only designer reads as "not started" beside a ChatGPT date.
+        active = d[f"active_{plural}_{scope}"]
         last_seen = d["last_seen_" + scope]
         if n == 0:
             status = '<span class="pill mute">Not started</span>'
-        elif weeks >= 2:
+        elif active >= 2:
             status = '<span class="pill good">&#10003; Returning</span>'
         else:
             status = '<span class="pill warn">&#9888; Tried once</span>'
@@ -762,36 +922,51 @@ def _designer_table(dataset, scope):
             cells = [esc(d["name"]), d["tool_chatgpt"], d["tool_gemini"]]
         else:
             cells = [esc(d["name"]), n]
-        rows.append(cells + [weeks, last_seen or "Never", status])
+        rows.append(cells + [active, last_seen or "Never", status])
         classes.append("is-idle" if n == 0 else "")
 
     lead = ["Designer", "ChatGPT", "Gemini"] if scope == "all" else ["Designer", "Actions"]
-    return table(lead + ["Active weeks", "Last used", "Status"], rows, classes)
+    return table(lead + ["Active " + plural, "Last used", "Status"], rows, classes)
 
 
-def _weekly_table(dataset, variant):
-    rows = []
-    for w in dataset["weeks"]:
-        if variant == "overall":
-            rows.append([w["label"], w["tool_chatgpt_total"], w["tool_gemini_total"],
-                         w["tool_active"], w["tool_cumulative"],
-                         f'{w["tool_adoption_pct"]}%'])
-        else:
-            pre = "tool_" + variant
-            rows.append([w["label"], w[pre + "_generate"], w[pre + "_refine"],
-                         w[pre + "_total"], w[pre + "_active"],
-                         w[pre + "_cumulative"], f'{w[variant + "_adoption_pct"]}%'])
-    headers = (
-        ["Week of", "ChatGPT", "Gemini", "Active users", "Cumulative adopters", "Adoption"]
-        if variant == "overall" else
-        ["Week of", "Generate", "Refine", "Total", "Active users",
-         "Cumulative adopters", "Adoption"]
-    )
+def _designer_panel(dataset, scope, hint):
     return (
-        '<div class="panel"><details class="table-toggle">'
-        "<summary>View weekly data table</summary>"
-        + table(headers, rows) + "</details></div>"
+        '<div class="panel">'
+        '<div class="panel-head"><p class="panel-title">By designer</p></div>'
+        f'<p class="panel-hint">{hint}</p>'
+        + period_div({p: _designer_table(dataset, scope, p) for p in config.PERIODS})
+        + "</div>"
     )
+
+
+def _period_table(dataset, variant):
+    """The raw series behind the charts, at whichever granularity is showing."""
+    blocks = {}
+    for period in config.PERIODS:
+        first = "Week of" if period == "week" else "Day"
+        rows = []
+        for w in dataset[SERIES_KEY[period]]:
+            if variant == "overall":
+                rows.append([w["label"], w["tool_chatgpt_total"], w["tool_gemini_total"],
+                             w["tool_active"], w["tool_cumulative"],
+                             f'{w["tool_adoption_pct"]}%'])
+            else:
+                pre = "tool_" + variant
+                rows.append([w["label"], w[pre + "_generate"], w[pre + "_refine"],
+                             w[pre + "_total"], w[pre + "_active"],
+                             w[pre + "_cumulative"], f'{w[variant + "_adoption_pct"]}%'])
+        headers = (
+            [first, "ChatGPT", "Gemini", "Active users", "Cumulative adopters", "Adoption"]
+            if variant == "overall" else
+            [first, "Generate", "Refine", "Total", "Active users",
+             "Cumulative adopters", "Adoption"]
+        )
+        blocks[period] = (
+            '<details class="table-toggle">'
+            f"<summary>View {config.PERIOD_LABELS[period].lower()} data table</summary>"
+            + table(headers, rows) + "</details>"
+        )
+    return '<div class="panel">' + period_div(blocks) + "</div>"
 
 
 def _ms(value):
@@ -800,6 +975,9 @@ def _ms(value):
 
 
 def render_overall(dataset, nav_items):
+    # ret is keyed by period now: ret["week"] and ret["day"] answer the same
+    # questions over different buckets, and every stage that depends on
+    # "came back" is rendered twice, once per key.
     meta, ret = dataset["meta"], dataset["retention"]
     rel, lat, qual = dataset["reliability"], dataset["latency"], dataset["quality"]
     weeks = dataset["weeks"]
@@ -815,30 +993,52 @@ def render_overall(dataset, nav_items):
         kpi("Adoption rate", meta["tool_adoption_pct"], unit="%",
             note=f'{meta["tool_adopters"]} of {denom} provisioned designers have generated at least once',
             headline=True)
-        + kpi("Returning users", ret["repeat_pct"], unit="%",
-              note=f'{ret["repeat_users"]} of {ret["adopters"]} came back in a second week')
+        + "".join(
+            kpi("Returning users", ret[p]["repeat_pct"], unit="%",
+                note=(f'{ret[p]["repeat_users"]} of {ret[p]["adopters"]} came back '
+                      + ("in a second week" if p == "week" else "on a second day")),
+                period=p)
+            for p in config.PERIODS
+        )
         + kpi("Total actions", f"{total_actions:,}",
               note="generate + refine through the tool, since launch")
-        + kpi("Success rate", rel["all"]["success_pct"], unit="%",
-              note=f'{rel["all"]["failed"]} failed of {rel["all"]["attempts"]} attempts')
+        + kpi("Delivered", rel["all"]["delivered_pct"], unit="%",
+              note=f'{rel["all"]["unusable"]} of {rel["all"]["attempts"]} attempts '
+                   f'never reached a designer')
     )
 
-    funnel_html = funnel([
+    savers = dataset["savers"]["all"]
+    saver_pct = round(100 * savers / max(1, denom))
+
+    # Only the "came back" stage moves with the period. Provisioned, adopted
+    # and kept-an-output are the same people either way.
+    funnel_html = period_div({p: funnel([
         ("Provisioned", denom, "designers"),
         ("Generated at least once", meta["tool_adopters"],
          f'{meta["tool_adoption_pct"]}%'),
-        ("Came back a 2nd week", ret["repeat_users"], f'{ret["repeat_pct"]}%'),
-        ("Kept an output", dataset["savers"]["all"],
-         f'{round(100 * dataset["savers"]["all"] / max(1, denom))}%'),
-    ])
+        (f'Came back a 2nd {config.PERIOD_NOUN[p]}', ret[p]["repeat_users"],
+         f'{ret[p]["repeat_pct"]}%'),
+        ("Kept an output", savers, f"{saver_pct}%"),
+    ]) for p in config.PERIODS})
 
-    stickiness = stat_lines([
-        ("Adopters", ret["adopters"], f'of {denom} provisioned'),
-        ("Returning (2+ weeks)", ret["repeat_users"], f'{ret["repeat_pct"]}%'),
-        ("Tried once, not since", ret["one_and_done"], f'{ret["one_and_done_pct"]}%'),
-        ("Never started", ret["never_tried"], ""),
-        ("Avg active weeks per adopter", ret["avg_active_weeks"], ""),
-    ])
+    stickiness = period_div({p: stat_lines([
+        ("Adopters", ret[p]["adopters"], f'of {denom} provisioned'),
+        (f'Returning (2+ {config.PERIOD_NOUN_PLURAL[p]})', ret[p]["repeat_users"],
+         f'{ret[p]["repeat_pct"]}%'),
+        ("Tried once, not since", ret[p]["one_and_done"],
+         f'{ret[p]["one_and_done_pct"]}%'),
+        ("Never started", ret[p]["never_tried"], ""),
+        (f'Avg active {config.PERIOD_NOUN_PLURAL[p]} per adopter',
+         ret[p]["avg_active_periods"], ""),
+    ]) for p in config.PERIODS})
+
+    volume_title = period_span({"week": "Weekly volume by model",
+                                "day": "Daily volume by model"})
+    per_period = period_span({p: config.PERIOD_NOUN[p] for p in config.PERIODS})
+    designer_panel = _designer_panel(
+        dataset, "all",
+        "Anyone provisioned but idle is listed too - that is the follow-up "
+        "list for the rollout.")
 
     err_rows = [[esc(code), n] for code, n in rel["all"]["errors"][:6]]
     errors_html = (
@@ -847,10 +1047,9 @@ def render_overall(dataset, nav_items):
     )
     reliability_html = (
         f'<div class="panel-head"><p class="panel-title">Reliability &amp; speed</p>'
-        f'{health_pill(rel["all"]["success_pct"], rel["all"]["attempts"])}</div>'
+        f'{health_pill(rel["all"]["delivered_pct"], rel["all"]["attempts"])}</div>'
+        + delivery_lines(rel["all"])
         + stat_lines([
-            ("Attempts", f'{rel["all"]["attempts"]:,}', ""),
-            ("Failed", rel["all"]["failed"], f'{rel["all"]["failure_pct"]}%'),
             ("ChatGPT median / p95", _ms(lat["chatgpt"]["p50"]),
              f'p95 {_ms(lat["chatgpt"]["p95"])}'),
             ("Gemini median / p95", _ms(lat["gemini"]["p50"]),
@@ -887,13 +1086,13 @@ def render_overall(dataset, nav_items):
 
   <div class="panel">
     <div class="panel-head">
-      <p class="panel-title">Weekly volume by model</p>
+      <p class="panel-title">{volume_title}</p>
       <div class="panel-legend">
         <span><span class="legend-dot" style="background:var(--chatgpt)"></span>ChatGPT</span>
         <span><span class="legend-dot" style="background:var(--gemini)"></span>Gemini</span>
       </div>
     </div>
-    <div id="chart-volume"></div>
+    {chart_slots("chart-volume")}
   </div>
 
   <div class="panel-row">
@@ -901,11 +1100,11 @@ def render_overall(dataset, nav_items):
       <div class="panel-head">
         <p class="panel-title">Active users &amp; cumulative adopters</p>
         <div class="panel-legend">
-          <span><span class="legend-dot" style="background:var(--step-3)"></span>Active / week</span>
+          <span><span class="legend-dot" style="background:var(--step-3)"></span>Active&nbsp;/&nbsp;{per_period}</span>
           <span><span class="legend-dot" style="background:var(--step-1)"></span>Cumulative adopters</span>
         </div>
       </div>
-      <div id="chart-users"></div>
+      {chart_slots("chart-users")}
     </div>
     <div class="panel">
       <div class="panel-head"><p class="panel-title">Model split</p></div>
@@ -927,33 +1126,36 @@ def render_overall(dataset, nav_items):
     <div class="panel">{quality_html}</div>
   </div>
 
-  <div class="panel">
-    <div class="panel-head"><p class="panel-title">By designer</p></div>
-    <p class="panel-hint">Anyone provisioned but idle is listed too - that is the
-      follow-up list for the rollout.</p>
-    {_designer_table(dataset, "all")}
-  </div>
+  {designer_panel}
 
-  {_weekly_table(dataset, "overall")}
+  {_period_table(dataset, "overall")}
 """
 
     script = """
 <script>
 (function(){
-  const data = __DATA__;
+  // Both granularities are built up front. One set is inside a hidden block,
+  // which costs nothing: an SVG sized by viewBox lays out correctly the
+  // moment it is shown, and the hover handlers only fire when it is.
+  const SERIES = __SERIES__;
   const root = document.querySelector('.dash[data-variant="overall"]');
   const css = k => getComputedStyle(root).getPropertyValue(k).trim();
-  window.__dashCharts.renderStackedArea(root.querySelector('#chart-volume'), data, [
-    {key: "tool_chatgpt_total", label: "ChatGPT", color: css('--chatgpt')},
-    {key: "tool_gemini_total",  label: "Gemini",  color: css('--gemini')}
-  ]);
-  window.__dashCharts.renderLines(root.querySelector('#chart-users'), data, [
-    {key: "tool_active",     label: "Active / week",        color: css('--step-3')},
-    {key: "tool_cumulative", label: "Cumulative adopters",  color: css('--step-1'), dashed: true}
-  ], {width: 560, height: 200});
+  Object.keys(SERIES).forEach(function(period){
+    window.__dashCharts.renderStackedArea(
+      root.querySelector('#chart-volume-' + period), SERIES[period], [
+        {key: "tool_chatgpt_total", label: "ChatGPT", color: css('--chatgpt')},
+        {key: "tool_gemini_total",  label: "Gemini",  color: css('--gemini')}
+      ]);
+    window.__dashCharts.renderLines(
+      root.querySelector('#chart-users-' + period), SERIES[period], [
+        {key: "tool_active",     label: "Active / " + period,  color: css('--step-3')},
+        {key: "tool_cumulative", label: "Cumulative adopters", color: css('--step-1'), dashed: true}
+      ], {width: 560, height: 200});
+  });
 })();
 </script>
-""".replace("__DATA__", json.dumps(dataset["weeks"]))
+""".replace("__SERIES__", json.dumps(
+        {p: dataset[SERIES_KEY[p]] for p in config.PERIODS}))
 
     return _shell("overall", dataset, nav_items, kpis, body, script)
 
@@ -982,8 +1184,9 @@ def render_provider(variant, dataset, nav_items):
               note=f'{m["actions"]:,} of {overlap["total_actions"]:,} in-tool actions')
         + kpi("Save rate", qual[variant]["save_pct"], unit="%",
               note=f'{qual[variant]["saved"]} of {qual[variant]["images"]} images kept')
-        + kpi("Success rate", rel[variant]["success_pct"], unit="%",
-              note=f'{rel[variant]["attempts"]:,} attempts, {rel[variant]["failed"]} failed')
+        + kpi("Delivered", rel[variant]["delivered_pct"], unit="%",
+              note=f'{rel[variant]["attempts"]:,} attempts, '
+                   f'{rel[variant]["unusable"]} never reached a designer')
     )
 
     # A measured zero and a missing feed look identical on a chart, so say
@@ -1006,14 +1209,19 @@ def render_provider(variant, dataset, nav_items):
     gen_pct = int(round(100.0 * m["generate"] / m["actions"])) if m["actions"] else 0
     ref_pct = 100 - gen_pct if m["actions"] else 0
 
+    volume_title = period_span({"week": f"Weekly {label} volume",
+                                "day": f"Daily {label} volume"})
+    per_period = period_span({p: config.PERIOD_NOUN[p] for p in config.PERIODS})
+    designer_panel = _designer_panel(dataset, variant,
+                                     f"{esc(label)} actions per designer, in the tool.")
+
     health_html = (
         f'<div class="panel-head"><p class="panel-title">{esc(label)} health</p>'
-        f'{health_pill(rel[variant]["success_pct"], rel[variant]["attempts"])}</div>'
+        f'{health_pill(rel[variant]["delivered_pct"], rel[variant]["attempts"])}</div>'
+        + delivery_lines(rel[variant])
         + stat_lines([
-            ("Actions", f'{m["actions"]:,}',
+            ("Generations delivered", f'{m["actions"]:,}',
              f'{m["generate"]} generate / {m["refine"]} refine'),
-            ("Attempts", f'{rel[variant]["attempts"]:,}', ""),
-            ("Failed", rel[variant]["failed"], f'{rel[variant]["failure_pct"]}%'),
             ("Median latency", _ms(lat[variant]["p50"]), f'p95 {_ms(lat[variant]["p95"])}'),
             ("Images saved", qual[variant]["saved"], f'{qual[variant]["save_pct"]}%'),
             ("Refines per generate", qual[variant]["refines_per_generate"], ""),
@@ -1025,25 +1233,25 @@ def render_provider(variant, dataset, nav_items):
 
   <div class="panel">
     <div class="panel-head">
-      <p class="panel-title">Weekly {esc(label)} volume</p>
+      <p class="panel-title">{volume_title}</p>
       <div class="panel-legend">
         <span><span class="legend-dot" style="background:var(--{variant})"></span>Generate</span>
         <span><span class="legend-dot" style="background:var(--{variant}-tint)"></span>Refine</span>
       </div>
     </div>
-    <div id="chart-volume"></div>
+    {chart_slots("chart-volume")}
   </div>
 
   <div class="panel-row">
     <div class="panel">
       <div class="panel-head">
-        <p class="panel-title">Adopters per week</p>
+        <p class="panel-title">Adopters per {per_period}</p>
         <div class="panel-legend">
-          <span><span class="legend-dot" style="background:var(--{variant})"></span>Active / week</span>
+          <span><span class="legend-dot" style="background:var(--{variant})"></span>Active&nbsp;/&nbsp;{per_period}</span>
           <span><span class="legend-dot" style="background:var(--{variant}-tint)"></span>Cumulative adopters</span>
         </div>
       </div>
-      <div id="chart-users"></div>
+      {chart_slots("chart-users")}
     </div>
     <div class="panel">
       <div class="panel-head"><p class="panel-title">Generate vs refine</p></div>
@@ -1069,32 +1277,33 @@ def render_provider(variant, dataset, nav_items):
     </div>
   </div>
 
-  <div class="panel">
-    <div class="panel-head"><p class="panel-title">By designer</p></div>
-    <p class="panel-hint">{esc(label)} actions per designer, in the tool.</p>
-    {_designer_table(dataset, variant)}
-  </div>
+  {designer_panel}
 
-  {_weekly_table(dataset, variant)}
+  {_period_table(dataset, variant)}
 """
 
     script = """
 <script>
 (function(){
-  const data = __DATA__;
+  const SERIES = __SERIES__;
   const root = document.querySelector('.dash[data-variant="__VARIANT__"]');
   const css = k => getComputedStyle(root).getPropertyValue(k).trim();
-  window.__dashCharts.renderStackedArea(root.querySelector('#chart-volume'), data, [
-    {key: "tool___VARIANT___generate", label: "Generate", color: css('--__VARIANT__')},
-    {key: "tool___VARIANT___refine",   label: "Refine",   color: css('--__VARIANT__-tint')}
-  ]);
-  window.__dashCharts.renderLines(root.querySelector('#chart-users'), data, [
-    {key: "tool___VARIANT___active",     label: "Active / week",       color: css('--__VARIANT__')},
-    {key: "tool___VARIANT___cumulative", label: "Cumulative adopters", color: css('--__VARIANT__-tint'), dashed: true}
-  ], {width: 560, height: 200});
+  Object.keys(SERIES).forEach(function(period){
+    window.__dashCharts.renderStackedArea(
+      root.querySelector('#chart-volume-' + period), SERIES[period], [
+        {key: "tool___VARIANT___generate", label: "Generate", color: css('--__VARIANT__')},
+        {key: "tool___VARIANT___refine",   label: "Refine",   color: css('--__VARIANT__-tint')}
+      ]);
+    window.__dashCharts.renderLines(
+      root.querySelector('#chart-users-' + period), SERIES[period], [
+        {key: "tool___VARIANT___active",     label: "Active / " + period,  color: css('--__VARIANT__')},
+        {key: "tool___VARIANT___cumulative", label: "Cumulative adopters", color: css('--__VARIANT__-tint'), dashed: true}
+      ], {width: 560, height: 200});
+  });
 })();
 </script>
-""".replace("__DATA__", json.dumps(dataset["weeks"])).replace("__VARIANT__", variant)
+""".replace("__SERIES__", json.dumps(
+        {p: dataset[SERIES_KEY[p]] for p in config.PERIODS})).replace("__VARIANT__", variant)
 
     return _shell(variant, dataset, nav_items, kpis, body, script)
 

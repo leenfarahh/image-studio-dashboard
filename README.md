@@ -29,6 +29,7 @@ publishing numbers that are not real.
 | `config.py` | Settings, secrets from `.env`, launch date, provider/operation vocabulary |
 | `datasource.py` | Fetches from the tool's Supabase project |
 | `metrics.py` | Aggregation: adoption, retention, reliability, model mix |
+| `assets.py` | The brand mark, inlined as a data URI for the favicon |
 | `render.py` | CSS, SVG chart primitives, the page templates |
 | `image_generation_dashboard_sync.py` | CLI entry point |
 | `app.py` | Flask service: refresh and serving |
@@ -46,7 +47,7 @@ see below).
 
 ### Auto-refresh
 
-A served view keeps itself current. There are three layers:
+A served view keeps itself current with no interaction. There are two layers:
 
 1. **On load.** If the data is older than `AUTO_REFRESH_SECONDS` (default 120),
    serving the page re-pulls from Supabase first. A rebuild takes about 3s,
@@ -54,20 +55,30 @@ A served view keeps itself current. There are three layers:
 2. **While open.** The page polls `/api/status` every `POLL_SECONDS`
    (default 30) and reloads **only if the figures actually changed**, compared
    by content hash rather than build time. A rebuild that finds nothing new
-   will not interrupt someone mid-read.
-3. **Manual.** A "Refresh now" button forces a re-read. Forced rebuilds are
-   rate-limited to one per `MIN_REBUILD_INTERVAL` (default 10s).
+   will not interrupt someone mid-read. It also re-checks whenever you switch
+   back to the tab.
 
-The bar also shows data age, turning amber past 15 minutes and red if the
-server cannot be reached.
+Worst case, a change in Supabase reaches an open page in
+`AUTO_REFRESH_SECONDS + POLL_SECONDS`, about 150 seconds on the defaults.
+
+**There is no refresh button, deliberately.** A browser reload is not a force:
+it goes through the same 120s cache and serves the cached build inside it. So
+the only thing a button did was read through that cache a couple of minutes
+early, on a dashboard measuring a rollout over weeks. Appending `?refresh=1` to
+`/api/status`, `/dashboard/<name>` or `/dashboard_data.json` still forces a
+read, rate-limited to one per `MIN_REBUILD_INTERVAL` (default 10s), for when
+you do need one from the URL.
+
+The bar shows data age, turning amber past 15 minutes and red if the server
+cannot be reached.
 
 If Supabase is unreachable, the last good build stays on disk and keeps being
 served; the error surfaces through `/api/status` rather than replacing a
 working page with an error page.
 
-The refresh bar only appears when `app.py` is serving the page. A file opened
-straight off disk is a static snapshot with no server to ask, so the bar stays
-hidden rather than offering a button that cannot work.
+The bar only appears when `app.py` is serving the page. A file opened straight
+off disk is a static snapshot with no server to ask, so the bar stays hidden
+rather than reporting an age it cannot keep current.
 
 ## Deploying to Render
 
@@ -157,20 +168,100 @@ placeholder values. Specifically:
 Earlier fabricated sample dashboards were moved to `_archive/`. Do not publish
 them.
 
+## Weekly or daily
+
+Every view carries a **Measured by** switch: `Weekly` or `Daily`. It changes the
+bucket that people-based metrics are counted in, and so changes what "came back"
+means:
+
+| Element | Weekly | Daily |
+|---|---|---|
+| Returning users KPI | active in 2+ calendar weeks | active on 2+ distinct days |
+| Adoption funnel | "Came back a 2nd week" | "Came back a 2nd day" |
+| Stickiness panel | returning, avg active weeks | returning, avg active days |
+| Volume and adopter charts | one point per week | one point per day |
+| By-designer table | Active weeks, and status | Active days, and status |
+
+Both readings are true and neither replaces the other. A second week is the
+stricter test of a habit, but in the first week of a rollout **nobody can have
+passed it yet**, so a weekly-only dashboard reports 0% returning while designers
+are visibly coming back the next day. The daily read surfaces that signal early;
+the weekly read is the one to judge a habit by once there is enough history.
+
+Everything not counted in periods is identical across the two: adoption rate,
+total actions, success rate, save rate, latency and the model split are the same
+numbers either way, and deliberately do not move when the switch does.
+
+Mechanically, both granularities are rendered into the page and the switch only
+flips which is visible, so it needs no server round trip and works on a file
+opened straight off disk. The choice is remembered in `localStorage`, because a
+page that reloads itself on new data would otherwise snap a daily reader back to
+weekly mid-read.
+
+## Retries, and what "a generation" counts
+
+The MCP client gives up on a slow generation and calls the tool again. The
+server has usually finished by then, so it writes an event row and stores an
+image that never reached the designer. One picture, three rows, three library
+images. Left alone, those retries read as extra successful generations and
+inflate volume, share of model, and median latency all at once.
+
+An attempt is treated as **superseded** when the same person re-renders an
+identical prompt on the same model within `RETRY_WINDOW_SECONDS` (default 300)
+**and** that attempt ran at or past `CLIENT_TIMEOUT_MS` (default 75000). Both
+conditions are required. A designer re-running a prompt they did not like is a
+real second generation, and the timeout is the only thing separating that from
+a client retry. Detection needs the prompt, so an attempt with no matching
+image row stays counted as delivered: this under-reports rather than inventing
+retries out of missing data.
+
+Every row therefore carries two flags:
+
+| Flag | Meaning |
+|---|---|
+| `delivered` | Succeeded **and** reached the designer. This is what "a generation" means in every count on the dashboard. |
+| `superseded` | Completed server-side, then a retry replaced it. A failure from where the designer sits, even though the tool recorded a success. |
+
+Both are reported side by side in the health panel, never summed into one
+"failures" number, because they are known to very different standards.
+
+### The tool does not log its failures
+
+`generation_events` gets a row only **after** a generation succeeds. There is no
+insert on the failure path, so `success` has never once been `false` and
+`error_code` has never been populated. A hard API error leaves no trace at all.
+
+This is why the dashboard can show a 0 next to "Failures logged by the tool"
+on the same day a designer watched two attempts error out. That zero is a
+missing feed, not a clean record, and the panel says so in those words rather
+than letting it read as reliability. Superseded attempts can be reported only
+because the rows they left behind do exist.
+
+**Fixing this properly is a change to the MCP tool, not to this repo.** The
+tool should write an event row on the failure path too, with `success = false`
+and a real `error_code`. Until it does, "Failures logged by the tool" is a
+floor, and the true delivered rate is at or below what is shown here.
+
 ## Metric definitions
 
 - **Adoption rate** — distinct people who ever generated, over active rows in
   `profiles`. Because `profiles` fills in on first sign-in, this measures
   activation among provisioned designers, not reach across the whole team. To
   measure the latter, swap the denominator for a headcount constant.
-- **Active users (weekly)** — distinct people in that week. Not the max of the
-  daily counts, which undercounts any week where different people show up on
-  different days.
-- **Returning / repeat rate** — share of adopters active in 2+ distinct weeks.
-  "Tried once" and "adopted" are not the same thing.
-- **Save rate** — share of generated images with `saved = true`. The strongest
-  available signal that a render was good enough to use.
-- **Share of volume** — one model's successful actions over all successful
+- **Active users (per period)** — distinct people in that bucket. A week is
+  not the max of its daily counts, which would undercount any week where
+  different people show up on different days; it is a fresh distinct count.
+- **Returning / repeat rate** — share of adopters active in 2+ distinct
+  periods, weeks or days depending on the switch. "Tried once" and "adopted" are
+  not the same thing. `retention` in `dashboard_data.json` is keyed by period.
+- **Delivered rate** — attempts that succeeded and reached the designer, over
+  all attempts. Replaces the old success rate, which divided the rows the tool
+  wrote by the rows the tool wrote and so could only ever be 100%.
+- **Save rate** — share of delivered images with `saved = true`. The strongest
+  available signal that a render was good enough to use. Superseded renders are
+  excluded from the denominator: nobody declined to keep an image they never
+  saw.
+- **Share of volume** — one model's delivered actions over all delivered
   in-tool actions. Which model the work actually runs on.
 - **Refines per generate** — reworks divided by first-pass generations. A high
   ratio means that model takes more iterations before anyone keeps the result.
@@ -203,6 +294,16 @@ your first event silently drops history rather than erroring.
 | Sand | `#e3d8cc` | Warm neutral. `--sand` for callout panels; the page plane is a lighter tint of it |
 | Figtree | sans | Body and UI, loaded from Google Fonts |
 | PP Editorial New | serif display | `.dash-title` and the landing `h1` |
+
+### The mark
+
+`logo_short.jpg` is the favicon, inlined as a `data:` URI by `assets.py` rather
+than linked by path. The same generated HTML is served by `app.py`, opened
+straight off disk and published as an artifact, and a path only resolves in the
+first of those. At 3KB it costs less inlined than a second round trip, and there
+is no separate file for a deploy to forget. `app.py` also serves it at
+`/favicon.ico`, unauthenticated like `/health`, for browsers that ask unprompted.
+A missing logo file degrades to no favicon rather than breaking a build.
 
 **PP Editorial New has no webfont here.** It is a licensed Pangram Pangram face,
 not on Google Fonts, so it leads the display stack and falls back to Georgia for
