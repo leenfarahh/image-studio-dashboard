@@ -109,7 +109,12 @@ def fetch_images(since):
 
 
 def fetch_profiles():
-    """The adoption denominator: people provisioned on the tool."""
+    """The adoption denominator: people provisioned on the tool.
+
+    This still returns the per-tool profiles (used for identity mapping). The
+    overall adoption denominator can be supplied separately from Odoo (headcount)
+    and is attached to the raw payload by load_all.
+    """
     rows = _paginated_get(
         config.TOOL_SUPABASE_URL,
         config.TOOL_SUPABASE_API_KEY,
@@ -126,9 +131,51 @@ def fetch_profiles():
     } for r in rows]
 
 
+def fetch_headcount_from_odoo():
+    """Query Odoo for the headcount of the configured department.
+
+    Tries a best-effort REST call. The exact Odoo API shape may vary between
+    deployments; this supports common patterns:
+      - If the endpoint returns a list of employee objects, the length is used.
+      - If the endpoint returns an object with a 'count' or 'total' field, that
+        value is used.
+
+    Returns an int (>=0) on success or None if no Odoo config is present or the
+    call/response could not be understood.
+    """
+    if not config.ODOO_API_URL or not config.ODOO_API_KEY:
+        return None
+
+    url = config.ODOO_API_URL.rstrip('/') + '/employees'
+    headers = {"Authorization": f"Bearer {config.ODOO_API_KEY}"}
+    params = {"department": config.ODOO_DEPARTMENT}
+
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=15)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        # List response -> count length
+        if isinstance(data, list):
+            return len(data)
+        if isinstance(data, dict):
+            for key in ("count", "total", "size", "employees_count"):
+                if key in data and isinstance(data[key], int):
+                    return data[key]
+            # Maybe employees under a key
+            for key in ("employees", "results", "data"):
+                if key in data and isinstance(data[key], list):
+                    return len(data[key])
+        # Unknown shape
+        return None
+    except Exception:
+        return None
+
+
 def load_all(since):
     return {
         "tool_events": fetch_tool_events(since),
         "images": fetch_images(since),
         "profiles": fetch_profiles(),
+        "headcount": fetch_headcount_from_odoo(),
     }

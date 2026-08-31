@@ -24,6 +24,12 @@ EVENTS_TABLE = "generation_events"
 IMAGES_TABLE = "images"
 PROFILES_TABLE = "profiles"
 
+# Odoo (HR) API settings. If provided, the dashboard will use the headcount
+# from Odoo filtered by department to compute the adoption denominator.
+ODOO_API_URL = os.environ.get("ODOO_API_URL", "")  # e.g. https://odoo.example.com/api
+ODOO_API_KEY = os.environ.get("ODOO_API_KEY", "")  # Bearer/token for Odoo API
+ODOO_DEPARTMENT = os.environ.get("ODOO_DEPARTMENT", "Creatives")
+
 REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN", "")
 
 # ------------------------------------------------------------------

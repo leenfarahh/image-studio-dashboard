@@ -111,7 +111,12 @@ def build(raw, launch_date, today):
     id_to_email, display_names = build_identity_map(profiles)
     eligible = [p for p in profiles if p["is_active"]]
     eligible_keys = {(p["email"] or p["id"]) for p in eligible}
-    denominator = len(eligible_keys)
+
+    # Prefer an explicit headcount supplied by the raw payload (e.g. from
+    # Odoo filtered by department). Fall back to the count of active
+    # provisioned profiles if Odoo is not available.
+    headcount = raw.get("headcount")
+    denominator = int(headcount) if (headcount is not None) else len(eligible_keys)
 
     for e in events:
         e["person"] = person_key(e, id_to_email)
