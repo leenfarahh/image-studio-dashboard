@@ -204,6 +204,25 @@ __FAVICON__
   }
   .chart-tooltip .tt-row { display: flex; align-items: center; gap: 6px; }
   .chart-tooltip .tt-date { font-weight: 700; margin-bottom: 2px; }
+  /* Who was behind the bucket. The tooltip inverts the page colours, so the
+     quieter text steps down by opacity rather than borrowing a page token. */
+  .chart-tooltip .tt-people {
+    margin-top: 7px; padding-top: 7px;
+    border-top: 1px solid color-mix(in oklch, var(--surface) 22%, transparent);
+  }
+  .chart-tooltip .tt-people-head {
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em;
+    text-transform: uppercase; opacity: 0.7; margin-bottom: 3px;
+  }
+  .chart-tooltip .tt-people-grid { display: grid; column-gap: 12px; align-items: center; }
+  .chart-tooltip .tt-name { max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+  .chart-tooltip .tt-count {
+    display: inline-flex; align-items: center; justify-content: flex-end;
+    gap: 4px; font-weight: 700;
+  }
+  .chart-tooltip .tt-count .legend-dot { width: 7px; height: 7px; margin: 0; }
+  .chart-tooltip .tt-count.is-zero { opacity: 0.4; font-weight: 500; }
+  .chart-tooltip .tt-more, .chart-tooltip .tt-none { opacity: 0.7; font-size: 11.5px; margin-top: 3px; }
 
   /* funnel */
   .funnel { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
@@ -269,6 +288,71 @@ __FAVICON__
   }
   table.data-table tr.is-idle td { color: var(--ink-muted); }
 
+  /* Sortable, filterable table. The label sorts; the funnel opens a menu with
+     both sort directions and that column's filter. */
+  .filter-panel { position: relative; }
+  .table-tools { display: flex; align-items: baseline; gap: 12px; font-size: 12px; color: var(--ink-muted); }
+  .link-btn {
+    font: 600 12px/1 "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--accent); background: none; border: 0; padding: 4px 0; cursor: pointer;
+  }
+  .link-btn:hover { text-decoration: underline; }
+  table.filter-table th { padding-top: 5px; padding-bottom: 5px; }
+  .th-inner { display: inline-flex; align-items: center; gap: 2px; }
+  .th-sort {
+    font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit;
+    background: none; border: 0; padding: 2px 0; cursor: pointer; white-space: nowrap;
+  }
+  .th-sort:hover, th[aria-sort="ascending"] .th-sort, th[aria-sort="descending"] .th-sort { color: var(--accent); }
+  .th-arrow { display: inline-block; width: 1em; text-align: center; }
+  .th-filter {
+    display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0;
+    border: 0; border-radius: 5px; background: none; color: var(--ink-muted); cursor: pointer;
+  }
+  .th-filter:hover, .th-filter[aria-expanded="true"] { background: var(--plane); color: var(--accent); }
+  .th-filter.is-active { background: var(--accent-tint); color: var(--accent); }
+  .th-filter.is-active svg path { fill: currentColor; }
+  .th-sort:focus-visible, .th-filter:focus-visible, .link-btn:focus-visible,
+  .col-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  table.data-table tr.no-match td {
+    text-align: center; color: var(--ink-muted); padding: 18px 10px; white-space: normal;
+  }
+
+  .col-menu {
+    position: absolute; z-index: 20; width: 240px; max-width: calc(100% - 16px);
+    background: var(--tile-bg); color: var(--ink); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px; font-size: 12.5px;
+    box-shadow: 0 10px 28px rgba(0,0,0,0.16);
+  }
+  .col-menu-title {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--ink-muted); margin: 0 0 6px;
+  }
+  .col-menu-sort {
+    display: flex; flex-direction: column; gap: 2px;
+    padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid var(--grid);
+  }
+  .col-menu-sort button {
+    font: 500 12.5px/1.2 "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+    text-align: left; color: var(--ink-2); background: none; border: 0;
+    border-radius: 6px; padding: 7px 8px; cursor: pointer;
+  }
+  .col-menu-sort button:hover { background: var(--plane); color: var(--ink); }
+  .col-menu-sort button[aria-pressed="true"] { background: var(--accent-tint); color: var(--accent); font-weight: 600; }
+  .col-menu-filter { display: flex; flex-direction: column; gap: 8px; }
+  .col-menu-range { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .col-menu-field { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; font-weight: 600; color: var(--ink-muted); }
+  .col-menu-field input {
+    font: 500 12.5px/1.2 "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-variant-numeric: tabular-nums; color: var(--ink); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; width: 100%; min-width: 0;
+  }
+  .col-menu-field input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .col-menu-check { display: flex; align-items: center; gap: 8px; color: var(--ink-2); cursor: pointer; }
+  .col-menu-check input { margin: 0; accent-color: var(--step-3); }
+  .col-menu-check:has(input:disabled) { opacity: 0.5; cursor: default; }
+  .col-menu-foot { display: flex; justify-content: flex-end; margin-top: 10px; }
+
   .dash-footer {
     max-width: 1180px; margin: 8px auto 0; font-size: 12px; color: var(--ink-muted);
     display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
@@ -315,6 +399,39 @@ CHART_JS = r"""
     return el;
   }
   function fmt(n) { return Number(n).toLocaleString(); }
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function(c){
+      return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c];
+    });
+  }
+
+  // Designers active in one bucket, one count column per model in `cols`.
+  // Capped so a busy week cannot grow the tooltip past the chart. Re-sorted
+  // on the columns shown, since a single-model page should rank by that
+  // model alone, so the cut always drops the smallest contributors.
+  const PEOPLE_CAP = 10;
+  function peopleList(people, cols) {
+    const shown = p => cols.reduce((sum, c) => sum + (p[c.key] || 0), 0);
+    const list = (people || []).filter(p => shown(p) > 0)
+      .sort((a, b) => shown(b) - shown(a) || a.name.localeCompare(b.name));
+    if (!list.length) return '<div class="tt-people tt-none">No designers active</div>';
+    let html = '<div class="tt-people"><div class="tt-people-head">' + list.length +
+               (list.length === 1 ? " designer" : " designers") + '</div>' +
+               '<div class="tt-people-grid" style="grid-template-columns:minmax(0,1fr)' +
+               " auto".repeat(cols.length) + '">';
+    list.slice(0, PEOPLE_CAP).forEach(p => {
+      html += '<span class="tt-name">' + esc(p.name) + "</span>";
+      cols.forEach(c => {
+        const n = p[c.key] || 0;
+        html += '<span class="tt-count mono' + (n ? "" : " is-zero") + '">' +
+                (cols.length > 1 ? '<span class="legend-dot" style="background:' + c.color + '"></span>' : "") +
+                fmt(n) + "</span>";
+      });
+    });
+    html += "</div>";
+    if (list.length > PEOPLE_CAP) html += '<div class="tt-more">+ ' + (list.length - PEOPLE_CAP) + " more</div>";
+    return html + "</div>";
+  }
 
   function scaffold(root, W, H, padL, padR, padT, padB, data, niceMax, y) {
     const svg = svgEl("svg", {viewBox: "0 0 " + W + " " + H, class: "chart-svg", role: "img"});
@@ -367,8 +484,12 @@ CHART_JS = r"""
       crosshair.style.opacity = 1;
       tooltip.innerHTML = rowsFor(i);
       tooltip.style.opacity = 1;
+      // Measured after filling: with names in it the width varies by bucket.
+      // Past the right edge it flips to the left of the crosshair instead.
       const bbox = wrap.getBoundingClientRect();
-      tooltip.style.left = Math.min((px / W) * bbox.width + 14, bbox.width - 160) + "px";
+      const cx = (px / W) * bbox.width, tw = tooltip.offsetWidth;
+      const left = cx + 14 + tw <= bbox.width ? cx + 14 : cx - 14 - tw;
+      tooltip.style.left = Math.max(0, left) + "px";
       tooltip.style.top = "8px";
     });
     overlay.addEventListener("mouseleave", () => {
@@ -379,6 +500,8 @@ CHART_JS = r"""
 
   // Stacked area. A 2px surface-coloured separator sits on every internal
   // boundary so adjacent fills never bleed into one another.
+  // opts.people: [{key, color}] adds who was active to the tooltip, read from
+  // each row's `people` list.
   function renderStackedArea(root, data, series, opts) {
     opts = opts || {};
     const W = (opts && opts.width) || 1000, H = (opts && opts.height) || 260;
@@ -433,6 +556,7 @@ CHART_JS = r"""
         rows += '<div class="tt-row"><span class="legend-dot" style="background:' + s.color +
                 '"></span>' + s.label + ': <b class="mono">&nbsp;' + fmt(data[i][s.key] || 0) + "</b></div>";
       });
+      if (opts.people) rows += peopleList(data[i].people, opts.people);
       return '<div class="tt-date">' + data[i].label + "</div>" + rows;
     });
   }
@@ -496,6 +620,12 @@ CHART_JS = r"""
 def esc(value):
     return (str(value).replace("&", "&amp;").replace("<", "&lt;")
             .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def _script_json(value):
+    """JSON for inlining in a <script>. The series carry designer names now,
+    and a "</" in one would otherwise end the script block early."""
+    return json.dumps(value).replace("</", "<\\/")
 
 
 def _period_attrs(period):
@@ -587,6 +717,52 @@ def table(headers, rows, row_classes=None):
     return (
         '<div class="data-table-scroll"><table class="data-table">'
         f"<thead>{head}</thead><tbody>{body}</tbody></table></div>"
+    )
+
+
+FILTER_ICON = (
+    '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">'
+    '<path d="M2.5 3h11l-4.25 5.25V12.5l-2.5 1.25V8.25z" fill="none" '
+    'stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>'
+)
+
+
+def filter_table(columns, rows, row_classes=None, noun="rows"):
+    """A table every column of which can be sorted and filtered in the page.
+
+    columns: (label, kind) or (label, kind, options), kind being one of
+    text | num | date | status. A status column's options are (slug, label)
+    pairs, most to least engaged, which is also the order it sorts in.
+
+    rows: lists of (html, key) cells. TABLE_JS sorts and filters on the key so
+    it never parses display text: a name, an integer, an ISO date ("" for
+    never), or a status slug.
+    """
+    head = ""
+    for label, kind, *rest in columns:
+        options = (f' data-options="{esc(json.dumps(rest[0]))}"' if rest else "")
+        head += (
+            f'<th data-kind="{kind}" data-label="{esc(label)}"{options} aria-sort="none">'
+            '<span class="th-inner">'
+            f'<button type="button" class="th-sort">{esc(label)}'
+            '<span class="th-arrow" aria-hidden="true"></span></button>'
+            f'<button type="button" class="th-filter" aria-label="Sort and filter {esc(label)}" '
+            f'aria-haspopup="dialog" aria-expanded="false">{FILTER_ICON}</button>'
+            "</span></th>"
+        )
+    body = ""
+    for i, r in enumerate(rows):
+        cls = f' class="{row_classes[i]}"' if row_classes and row_classes[i] else ""
+        cells = "".join(
+            f'<td class="mono" data-key="{esc(key)}">{html}</td>' if j
+            else f'<td data-key="{esc(key)}">{html}</td>'
+            for j, (html, key) in enumerate(r)
+        )
+        body += f"<tr{cls}>{cells}</tr>"
+    return (
+        '<div class="data-table-scroll">'
+        f'<table class="data-table filter-table" data-noun="{esc(noun)}">'
+        f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>"
     )
 
 
@@ -839,6 +1015,343 @@ REFRESH_JS = """
 </script>
 """
 
+# Sort and filter for every filter_table. A panel holds one table per period;
+# both share one state, so switching Weekly/Daily keeps the view the reader
+# built. Each table checks the filter against its own figures, which is right:
+# "2+ active days" and "2+ active weeks" are different people.
+#
+# State lives in sessionStorage, not localStorage. It has to survive the
+# page's own reload when the figures change, but a filter left over from last
+# week would silently drop names off the follow-up list.
+TABLE_JS = r"""
+<script>
+(function(){
+  var root = document.querySelector('.dash[data-variant]');
+  if (!root) return;
+  var SORT_LABELS = {
+    text: ['Sort A to Z', 'Sort Z to A'],
+    num:  ['Sort smallest to largest', 'Sort largest to smallest'],
+    date: ['Sort oldest to newest', 'Sort newest to oldest']
+  };
+  // Counts and dates read best biggest / most recent first.
+  var DESC_FIRST = {num: true, date: true};
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function isNum(v) { return v !== '' && v != null && !isNaN(+v); }
+
+  function setup(panel, panelIndex) {
+    var tables = Array.prototype.slice.call(panel.querySelectorAll('table.filter-table'));
+    if (!tables.length) return;
+    var KEY = 'imagegen-dash-table-' + root.getAttribute('data-variant') + '-' + panelIndex;
+    var reset = panel.querySelector('.table-reset');
+
+    var cols = Array.prototype.map.call(tables[0].tHead.rows[0].cells, function(th){
+      var options = [];
+      try { options = JSON.parse(th.getAttribute('data-options') || '[]'); } catch (e) {}
+      return {kind: th.getAttribute('data-kind') || 'text',
+              label: th.getAttribute('data-label') || '', options: options};
+    });
+
+    tables.forEach(function(t){
+      var body = t.tBodies[0];
+      t._rows = Array.prototype.slice.call(body.rows);
+      t._rows.forEach(function(r, i){ r._i = i; });
+      t._noun = t.getAttribute('data-noun') || 'rows';
+      t._empty = el('tr', 'no-match');
+      var td = el('td', null, 'No ' + t._noun + ' match these filters.');
+      td.colSpan = cols.length;
+      t._empty.appendChild(td);
+      body.appendChild(t._empty);
+      var block = t.closest('[data-period]');
+      t._count = block && panel.querySelector(
+        '.table-count[data-period="' + block.getAttribute('data-period') + '"]');
+    });
+
+    var state = {sort: null, filters: {}};
+    try {
+      var saved = JSON.parse(window.sessionStorage.getItem(KEY) || 'null');
+      if (saved && saved.sort && cols[saved.sort.col] &&
+          (saved.sort.dir === 1 || saved.sort.dir === -1)) state.sort = saved.sort;
+      if (saved && saved.filters) {
+        Object.keys(saved.filters).forEach(function(c){
+          if (cols[c] && saved.filters[c]) state.filters[c] = saved.filters[c];
+        });
+      }
+    } catch (e) {}
+
+    function key(row, c) { return row.cells[c].getAttribute('data-key') || ''; }
+    function rank(c, slug) {
+      var o = cols[c].options;
+      for (var i = 0; i < o.length; i++) if (o[i][0] === slug) return i;
+      return o.length;
+    }
+
+    function active(c) {
+      var f = state.filters[c];
+      if (!f) return false;
+      switch (cols[c].kind) {
+        case 'num':    return isNum(f.min) || isNum(f.max);
+        case 'date':   return !!(f.from || f.to);
+        case 'status': return !!(f.hide && f.hide.length);
+        default:       return !!(f.q && f.q.trim());
+      }
+    }
+
+    function passes(row) {
+      for (var c in state.filters) {
+        if (!active(c)) continue;
+        var f = state.filters[c], v = key(row, +c), kind = cols[c].kind;
+        if (kind === 'num') {
+          if (isNum(f.min) && +v < +f.min) return false;
+          if (isNum(f.max) && +v > +f.max) return false;
+        } else if (kind === 'date') {
+          // A date range says nothing about someone who never used it, so
+          // they only stay in when the reader asks for them.
+          if (!v) { if (!f.never) return false; }
+          else if ((f.from && v < f.from) || (f.to && v > f.to)) return false;
+        } else if (kind === 'status') {
+          if (f.hide.indexOf(v) >= 0) return false;
+        } else if (v.toLowerCase().indexOf(f.q.trim().toLowerCase()) < 0) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    function comparer(c, dir) {
+      var kind = cols[c].kind;
+      return function(a, b){
+        var x = key(a, c), y = key(b, c), d;
+        if (kind === 'date' && (!x || !y)) {
+          // "Never" sits at the bottom whichever way the column runs.
+          d = x ? -1 : (y ? 1 : 0);
+          return d || a._i - b._i;
+        }
+        if (kind === 'num') d = (+x) - (+y);
+        else if (kind === 'status') d = rank(c, x) - rank(c, y);
+        else if (kind === 'date') d = x < y ? -1 : (x > y ? 1 : 0);
+        else d = x.localeCompare(y, undefined, {sensitivity: 'base', numeric: true});
+        return d * dir || a._i - b._i;
+      };
+    }
+
+    function apply() {
+      var sort = state.sort;
+      tables.forEach(function(t){
+        var body = t.tBodies[0], order = t._rows.slice(), shown = 0;
+        if (sort) order.sort(comparer(sort.col, sort.dir));
+        order.forEach(function(r){
+          r.hidden = !passes(r);
+          if (!r.hidden) shown++;
+          body.appendChild(r);
+        });
+        body.appendChild(t._empty);
+        t._empty.hidden = shown > 0;
+        if (t._count) {
+          var total = t._rows.length;
+          t._count.textContent = shown === total
+            ? total + ' ' + t._noun : 'Showing ' + shown + ' of ' + total;
+        }
+        Array.prototype.forEach.call(t.tHead.rows[0].cells, function(th, c){
+          var on = sort && sort.col === c;
+          th.setAttribute('aria-sort', on ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none');
+          th.querySelector('.th-arrow').textContent = on ? (sort.dir === 1 ? '↑' : '↓') : '';
+          th.querySelector('.th-filter').classList.toggle('is-active', active(c));
+        });
+      });
+      if (reset) reset.hidden = !(sort || Object.keys(state.filters).some(active));
+      try { window.sessionStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    }
+
+    function cycleSort(c) {
+      var first = DESC_FIRST[cols[c].kind] ? -1 : 1, s = state.sort;
+      if (!s || s.col !== c) state.sort = {col: c, dir: first};
+      else if (s.dir === first) state.sort = {col: c, dir: -first};
+      else state.sort = null;
+      apply();
+    }
+
+    // ---- column menu: one per panel, rebuilt for whichever column opens it
+    var menu = el('div', 'col-menu');
+    menu.setAttribute('role', 'dialog');
+    menu.hidden = true;
+    panel.appendChild(menu);
+    var openCol = null, opener = null;
+
+    function filterOf(c) { return state.filters[c] || (state.filters[c] = {}); }
+
+    function field(label, type, value, onInput) {
+      var wrap = el('label', 'col-menu-field');
+      var input = el('input');
+      input.type = type;
+      input.value = value || '';
+      if (type === 'number') { input.min = '0'; input.inputMode = 'numeric'; }
+      input.addEventListener('input', onInput);
+      wrap.appendChild(el('span', null, label));
+      wrap.appendChild(input);
+      return wrap;
+    }
+
+    function check(label, checked, onChange) {
+      var wrap = el('label', 'col-menu-check');
+      var input = el('input');
+      input.type = 'checkbox';
+      input.checked = checked;
+      input.addEventListener('change', onChange);
+      wrap.appendChild(input);
+      wrap.appendChild(el('span', null, label));
+      return wrap;
+    }
+
+    function build(c) {
+      var col = cols[c], f = state.filters[c] || {};
+      menu.textContent = '';
+      menu.setAttribute('aria-label', col.label + ': sort and filter');
+      menu.appendChild(el('p', 'col-menu-title', col.label));
+
+      var labels = col.kind === 'status' && col.options.length
+        ? ['Sort ' + col.options[0][1] + ' first',
+           'Sort ' + col.options[col.options.length - 1][1] + ' first']
+        : (SORT_LABELS[col.kind] || SORT_LABELS.text);
+      var sorts = el('div', 'col-menu-sort');
+      [1, -1].forEach(function(dir, i){
+        var on = !!(state.sort && state.sort.col === c && state.sort.dir === dir);
+        var b = el('button', null, labels[i]);
+        b.type = 'button';
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        b.addEventListener('click', function(){
+          state.sort = on ? null : {col: c, dir: dir};
+          apply();
+          close(true);
+        });
+        sorts.appendChild(b);
+      });
+      menu.appendChild(sorts);
+
+      var box = el('div', 'col-menu-filter'), range;
+      if (col.kind === 'num') {
+        range = el('div', 'col-menu-range');
+        range.appendChild(field('Min', 'number', f.min, function(e){ filterOf(c).min = e.target.value; apply(); }));
+        range.appendChild(field('Max', 'number', f.max, function(e){ filterOf(c).max = e.target.value; apply(); }));
+        box.appendChild(range);
+      } else if (col.kind === 'date') {
+        var never;
+        var syncNever = function(){ never.querySelector('input').disabled = !active(c); };
+        box.appendChild(field('From', 'date', f.from, function(e){ filterOf(c).from = e.target.value; syncNever(); apply(); }));
+        box.appendChild(field('To', 'date', f.to, function(e){ filterOf(c).to = e.target.value; syncNever(); apply(); }));
+        never = check('Include never used', !!f.never, function(e){ filterOf(c).never = e.target.checked; apply(); });
+        box.appendChild(never);
+        syncNever();
+      } else if (col.kind === 'status') {
+        col.options.forEach(function(o){
+          var hidden = (f.hide || []).indexOf(o[0]) >= 0;
+          box.appendChild(check(o[1], !hidden, function(e){
+            var fl = filterOf(c);
+            fl.hide = (fl.hide || []).filter(function(s){ return s !== o[0]; });
+            if (!e.target.checked) fl.hide.push(o[0]);
+            apply();
+          }));
+        });
+      } else {
+        box.appendChild(field('Contains', 'search', f.q, function(e){ filterOf(c).q = e.target.value; apply(); }));
+      }
+      menu.appendChild(box);
+
+      var foot = el('div', 'col-menu-foot');
+      var clear = el('button', 'link-btn', 'Clear filter');
+      clear.type = 'button';
+      clear.addEventListener('click', function(){
+        delete state.filters[c];
+        apply();
+        build(c);
+        focusFirst();
+      });
+      foot.appendChild(clear);
+      menu.appendChild(foot);
+    }
+
+    function place() {
+      if (!opener) return;
+      var pr = panel.getBoundingClientRect();
+      var r = opener.closest('th').getBoundingClientRect();
+      var w = menu.offsetWidth;
+      // The first column is left-aligned, the rest right-aligned, so the menu
+      // hangs off the same edge as the header text.
+      var left = openCol === 0 ? r.left - pr.left : r.right - pr.left - w;
+      menu.style.left = Math.max(8, Math.min(left, pr.width - w - 8)) + 'px';
+      menu.style.top = (r.bottom - pr.top + 4) + 'px';
+    }
+
+    function focusFirst() {
+      // Only a text filter takes focus straight away: on a phone, focusing a
+      // number or date box would throw up the keyboard before anyone asked.
+      var target = (cols[openCol].kind === 'text' && menu.querySelector('.col-menu-filter input')) ||
+                   menu.querySelector('button');
+      if (target) target.focus();
+    }
+
+    function open(c, btn) {
+      if (openCol === c && opener === btn) { close(true); return; }
+      close(false);
+      openCol = c;
+      opener = btn;
+      build(c);
+      menu.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+      place();
+      focusFirst();
+    }
+
+    function close(restoreFocus) {
+      if (openCol === null) return;
+      menu.hidden = true;
+      opener.setAttribute('aria-expanded', 'false');
+      if (restoreFocus) opener.focus();
+      openCol = null;
+      opener = null;
+    }
+
+    panel.addEventListener('click', function(e){
+      var sortBtn = e.target.closest('.th-sort');
+      if (sortBtn) { close(false); cycleSort(sortBtn.closest('th').cellIndex); return; }
+      var filterBtn = e.target.closest('.th-filter');
+      if (filterBtn) open(filterBtn.closest('th').cellIndex, filterBtn);
+    });
+    document.addEventListener('pointerdown', function(e){
+      if (openCol === null || menu.contains(e.target) || opener.contains(e.target)) return;
+      close(false);
+    });
+    menu.addEventListener('keydown', function(e){
+      if (e.key === 'Escape') { e.preventDefault(); close(true); }
+    });
+    menu.addEventListener('focusout', function(e){
+      var to = e.relatedTarget;
+      if (to && !menu.contains(to) && to !== opener) close(false);
+    });
+    // Re-anchor rather than close: a phone keyboard opening is a resize too.
+    window.addEventListener('resize', place);
+    Array.prototype.forEach.call(panel.querySelectorAll('.data-table-scroll'), function(s){
+      s.addEventListener('scroll', place);
+    });
+    if (reset) reset.addEventListener('click', function(){
+      state = {sort: null, filters: {}};
+      close(false);
+      apply();
+    });
+
+    apply();
+  }
+
+  Array.prototype.forEach.call(root.querySelectorAll('.filter-panel'), setup);
+})();
+</script>
+"""
+
 
 def _shell(variant, dataset, nav_items, kpis_html, body_html, script_html):
     eyebrow, page_title, title, sub = TITLES[variant]
@@ -887,9 +1400,20 @@ def _shell(variant, dataset, nav_items, kpis_html, body_html, script_html):
 {NAV_JS}
 {PERIOD_JS}
 {REFRESH_JS}
+{TABLE_JS}
 {CHART_JS}
 {script_html}
 """
+
+
+# Most to least engaged. The status column sorts in this order and its filter
+# lists these as checkboxes.
+DESIGNER_STATUSES = [
+    ("returning", "Returning", '<span class="pill good">&#10003; Returning</span>'),
+    ("tried", "Tried once", '<span class="pill warn">&#9888; Tried once</span>'),
+    ("idle", "Not started", '<span class="pill mute">Not started</span>'),
+]
+STATUS_PILLS = {slug: pill for slug, _, pill in DESIGNER_STATUSES}
 
 
 def _designer_table(dataset, scope, period):
@@ -912,27 +1436,44 @@ def _designer_table(dataset, scope, period):
         active = d[f"active_{plural}_{scope}"]
         last_seen = d["last_seen_" + scope]
         if n == 0:
-            status = '<span class="pill mute">Not started</span>'
+            status = "idle"
         elif active >= 2:
-            status = '<span class="pill good">&#10003; Returning</span>'
+            status = "returning"
         else:
-            status = '<span class="pill warn">&#9888; Tried once</span>'
+            status = "tried"
 
+        cells = [(esc(d["name"]), d["name"])]
         if scope == "all":
-            cells = [esc(d["name"]), d["tool_chatgpt"], d["tool_gemini"]]
+            cells += [(d["tool_chatgpt"], d["tool_chatgpt"]),
+                      (d["tool_gemini"], d["tool_gemini"])]
         else:
-            cells = [esc(d["name"]), n]
-        rows.append(cells + [active, last_seen or "Never", status])
+            cells.append((n, n))
+        rows.append(cells + [(active, active),
+                             (last_seen or "Never", last_seen or ""),
+                             (STATUS_PILLS[status], status)])
         classes.append("is-idle" if n == 0 else "")
 
-    lead = ["Designer", "ChatGPT", "Gemini"] if scope == "all" else ["Designer", "Actions"]
-    return table(lead + ["Active " + plural, "Last used", "Status"], rows, classes)
+    lead = ([("Designer", "text"), ("ChatGPT", "num"), ("Gemini", "num")]
+            if scope == "all" else [("Designer", "text"), ("Actions", "num")])
+    columns = lead + [
+        ("Active " + plural, "num"),
+        ("Last used", "date"),
+        ("Status", "status", [(slug, label) for slug, label, _ in DESIGNER_STATUSES]),
+    ]
+    return filter_table(columns, rows, classes, noun="designers")
 
 
 def _designer_panel(dataset, scope, hint):
+    # One count per period, so it follows the toggle like everything else.
+    counts = "".join(
+        f'<span class="table-count"{_period_attrs(p)}></span>' for p in config.PERIODS
+    )
     return (
-        '<div class="panel">'
-        '<div class="panel-head"><p class="panel-title">By designer</p></div>'
+        '<div class="panel filter-panel">'
+        '<div class="panel-head"><p class="panel-title">By designer</p>'
+        f'<div class="table-tools">{counts}'
+        '<button type="button" class="link-btn table-reset" hidden>Reset</button>'
+        "</div></div>"
         f'<p class="panel-hint">{hint}</p>'
         + period_div({p: _designer_table(dataset, scope, p) for p in config.PERIODS})
         + "</div>"
@@ -1145,7 +1686,8 @@ def render_overall(dataset, nav_items):
       root.querySelector('#chart-volume-' + period), SERIES[period], [
         {key: "tool_chatgpt_total", label: "ChatGPT", color: css('--chatgpt')},
         {key: "tool_gemini_total",  label: "Gemini",  color: css('--gemini')}
-      ]);
+      ], {people: [{key: "chatgpt", color: css('--chatgpt')},
+                   {key: "gemini",  color: css('--gemini')}]});
     window.__dashCharts.renderLines(
       root.querySelector('#chart-users-' + period), SERIES[period], [
         {key: "tool_active",     label: "Active / " + period,  color: css('--step-3')},
@@ -1154,7 +1696,7 @@ def render_overall(dataset, nav_items):
   });
 })();
 </script>
-""".replace("__SERIES__", json.dumps(
+""".replace("__SERIES__", _script_json(
         {p: dataset[SERIES_KEY[p]] for p in config.PERIODS}))
 
     return _shell("overall", dataset, nav_items, kpis, body, script)
@@ -1293,7 +1835,7 @@ def render_provider(variant, dataset, nav_items):
       root.querySelector('#chart-volume-' + period), SERIES[period], [
         {key: "tool___VARIANT___generate", label: "Generate", color: css('--__VARIANT__')},
         {key: "tool___VARIANT___refine",   label: "Refine",   color: css('--__VARIANT__-tint')}
-      ]);
+      ], {people: [{key: "__VARIANT__", color: css('--__VARIANT__')}]});
     window.__dashCharts.renderLines(
       root.querySelector('#chart-users-' + period), SERIES[period], [
         {key: "tool___VARIANT___active",     label: "Active / " + period,  color: css('--__VARIANT__')},
@@ -1302,7 +1844,7 @@ def render_provider(variant, dataset, nav_items):
   });
 })();
 </script>
-""".replace("__SERIES__", json.dumps(
+""".replace("__SERIES__", _script_json(
         {p: dataset[SERIES_KEY[p]] for p in config.PERIODS})).replace("__VARIANT__", variant)
 
     return _shell(variant, dataset, nav_items, kpis, body, script)

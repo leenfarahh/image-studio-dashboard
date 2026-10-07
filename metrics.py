@@ -27,6 +27,22 @@ def _pct(part, whole):
     return round(100.0 * part / whole, 1) if whole else 0.0
 
 
+def _people(per_person, display_names):
+    """Who generated in one bucket, and how much on each model.
+
+    Feeds the chart tooltips. Busiest first, so when a long list is capped
+    the people behind a spike are the ones still showing.
+    """
+    rows = []
+    for person, counts in per_person.items():
+        row = {"name": display_names.get(person) or person}
+        for prov in config.PROVIDERS:
+            row[prov] = counts.get(prov, 0)
+        rows.append(row)
+    rows.sort(key=lambda r: (-sum(r[p] for p in config.PROVIDERS), r["name"].lower()))
+    return rows
+
+
 def _percentile(values, p):
     if not values:
         return 0
@@ -182,6 +198,7 @@ def build(raw, launch_date, today):
         counts = defaultdict(int)
         actives = defaultdict(set)
         day_active = set()
+        per_person = defaultdict(lambda: defaultdict(int))
 
         for e in rows:
             prov, op = e["provider"], e["operation"]
@@ -195,6 +212,7 @@ def build(raw, launch_date, today):
                 seen[prov].add(e["person"])
                 seen_any.add(e["person"])
                 day_active.add(e["person"])
+                per_person[e["person"]][prov] += 1
 
         # Same key shape as the weekly rows built below. The daily and weekly
         # views share every chart and table, so they have to share a schema;
@@ -214,6 +232,7 @@ def build(raw, launch_date, today):
         row["tool_active"] = len(day_active)
         row["tool_cumulative"] = len(seen_any)
         row["tool_adoption_pct"] = _pct(len(seen_any), denominator)
+        row["people"] = _people(per_person, display_names)
         daily.append(row)
 
     # ---------------------------------------------------------------
@@ -223,6 +242,7 @@ def build(raw, launch_date, today):
     # ---------------------------------------------------------------
     week_people = defaultdict(lambda: defaultdict(set))
     week_counts = defaultdict(lambda: defaultdict(int))
+    week_per_person = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
     week_cum = {}
 
     for e in events:
@@ -232,6 +252,7 @@ def build(raw, launch_date, today):
         week_counts[key][e["provider"] + "_" + e["operation"]] += 1
         week_people[key][e["provider"]].add(e["person"])
         week_people[key]["any"].add(e["person"])
+        week_per_person[key][e["person"]][e["provider"]] += 1
 
     for row in daily:
         key = _bucket_key(datetime.fromisoformat(row["date"]).date(), "week")
@@ -268,6 +289,7 @@ def build(raw, launch_date, today):
         w["tool_active"] = len(people.get("any", ()))
         w["tool_cumulative"] = last.get("tool_cumulative", 0)
         w["tool_adoption_pct"] = _pct(w["tool_cumulative"], denominator)
+        w["people"] = _people(week_per_person[key], display_names)
         weeks.append(w)
 
     return {
